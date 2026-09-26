@@ -243,6 +243,19 @@ tools until unswapped.
 - [ ] **8.1  Free the camera.** Quit Image Capture and Photos. `killall ptpcamerad`. Plug in.
 - [ ] **8.2** Repeat 6.2–6.10 (no Zadig; port starts with `usb:`). For 6.9, test that
       opening Image Capture triggers our "in use" message; then close it and recover.
+- [ ] **8.3  Packaged app is self-contained.** `scripts/package-macos.sh`. Then, with
+      Homebrew hidden from it:
+      ```
+      R=$PWD/target/dist/DragonSlayer.app/Contents
+      env -i HOME=$HOME PATH=$R/Resources/bin:/usr/bin:/bin \
+        CAMLIBS=$R/Resources/libgphoto2/camlibs IOLIBS=$R/Resources/libgphoto2/iolibs \
+        DYLD_PRINT_LIBRARIES=1 $R/MacOS/dragonslayer-cli cameras 2>&1 | grep -c /opt/homebrew
+      ```
+      Expected: `0`, and the camera is listed. Repeat with `capture` and `compile` into a
+      scratch project: frames land, MP4 is written.
+- [ ] **8.4  Packaged app from Finder.** Double-click `target/dist/DragonSlayer.app`: the
+      camera connects, and **Export** writes an MP4 (proves the bundled ffmpeg is found
+      without Terminal's PATH). `~/Library/Logs/dragonslayer.log` has a "starting" line.
 
 ## 9. Soak test (before tagging a release)
 

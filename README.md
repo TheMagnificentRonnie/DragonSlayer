@@ -7,7 +7,7 @@
 </p>
 
 <p align="center">
-  <b>Status:</b> 0.1.0-beta &nbsp;·&nbsp;
+  <b>Status:</b> 0.2.1-beta &nbsp;·&nbsp;
   <b>Licence:</b> MIT &nbsp;·&nbsp;
   <b>Support:</b> none (community only)
 </p>
@@ -78,6 +78,11 @@ DragonSlayer is deliberately kept small: it does one job (capture + compile) and
 ## Features
 
 - **Live view over USB** on any camera libgphoto2 supports live view for
+- **Two modes** — *Add Frames* (live view, Space captures) and *Preview* (review what you've shot); Tab flips between them
+- **Filmstrip timeline** of clickable thumbnails, arrow-key frame stepping and playback at the scene's frame rate
+- **Picture-in-picture** — the other view (live or last frame) in the corner, toggle from the View menu
+- **Dockable panels** — Scenes, Viewer, Timeline, Camera, Onion Skin and Export; drag any tab to rearrange
+- **Three themes** — Dark Teal, Dark Amber, Light (Preferences → Theme)
 - **Onion skin** — full-frame ghost or edge-detected outlines of the previous frame, so you can see exactly how far you've moved between shots
 - **Scenes** with independent frame rates, drag-to-reorder, rename, per-scene trash
 - **Never lose a frame** — every capture is a filesystem transaction, replayed on the next launch if the app crashes mid-shot
@@ -85,6 +90,7 @@ DragonSlayer is deliberately kept small: it does one job (capture + compile) and
 - **Compile** to H.264 MP4 or ProRes 422 MOV, source resolution / 4K / 1080p, crop or fit
 - **Prevents system sleep** during a shooting session
 - **Windows driver setup built in** — bundles Zadig for the one-time WinUSB swap
+- **Self-contained Mac app** — download, drag to Applications, done; camera drivers and ffmpeg are inside
 - **Extensive in-app help** with Windows/macOS-aware troubleshooting for wedged cameras, driver issues and vendor-specific quirks
 - **egui + wgpu** — pure Rust, cross-platform, no Electron
 
@@ -92,9 +98,9 @@ DragonSlayer is deliberately kept small: it does one job (capture + compile) and
 
 ### Windows
 
-1. **Build** (see [Build from source](#build-from-source)), or download the pre-built folder once releases are published.
+1. **Download** `dragonslayer-<version>-windows-x64.zip` from the [Releases page](https://github.com/TheMagnificentRonnie/DragonSlayer/releases) — the newest release that has a Windows zip under *Assets* (currently [0.2.0-beta](https://github.com/TheMagnificentRonnie/DragonSlayer/releases/tag/v0.2.0-beta)). Unzip it anywhere. Or [build from source](#build-from-source).
 2. **Plug in your camera** on USB, turn it on, set it to *PC* / *PC(Tether)* / *PTP* mode.
-3. Run `bin\dragonslayer-app.cmd`.
+3. Double-click `DragonSlayer.cmd` in the unzipped folder (from a source build: `bin\dragonslayer-app.cmd`).
 4. If Windows is still using its own driver, click **Set up USB driver…** in the top right. The bundled Zadig walks through a one-time swap to WinUSB (nothing on the camera changes — only which Windows driver claims the USB port).
 5. Click **New project…**, capture with **Space**, delete with **Backspace**, hit **H** any time for help.
 
@@ -125,15 +131,18 @@ Prefer to build it yourself? See [Build from source](#build-from-source).
 | **Space** | Capture the next frame into the active scene |
 | **Backspace** | Move the last frame to the scene's trash folder |
 | **O** | Toggle onion skin on/off |
-| **Tab** | Switch between live view and the last captured frame |
+| **Tab** | Switch between Add Frames and Preview |
+| **← / →** | Previous / next frame (hold to scrub; **Shift** jumps 10) |
+| **Home / End** | First / last frame |
+| **P** | Play / pause at the scene's frame rate |
 | **H** | Open the in-app help |
-| **Esc** | Close a modal |
+| **Esc** | Close a modal / back to Add Frames |
 
 ## Supported cameras
 
 DragonSlayer uses libgphoto2's PTP driver, which supports **hundreds** of cameras — most Canon EOS, Nikon, Sony Alpha, Panasonic Lumix, Fujifilm and OM System/Olympus bodies made in the last 15 years.
 
-- **Reference camera:** Panasonic Lumix GH5 — tested end to end on Windows.
+- **Reference camera:** Panasonic Lumix GH5 — tested end to end on Windows and macOS.
 - **Second test camera:** Canon EOS 100D.
 - **Everything else:** should work; please open an issue if it does or doesn't.
 

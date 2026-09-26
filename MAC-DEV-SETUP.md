@@ -20,6 +20,7 @@ Time budget: about **30–60 minutes** the first time (most of it waiting for do
 8. Download DragonSlayer.
 9. Build DragonSlayer.
 10. Run DragonSlayer.
+11. (Optional) Shortcuts, and a double-clickable app with a Desktop icon.
 
 Copy each grey command block and paste into Terminal. Press **Return** to run it. Wait for the `$` (or `%`) prompt to come back before pasting the next one.
 

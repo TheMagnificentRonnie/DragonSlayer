@@ -14,7 +14,7 @@ Each item has a rough complexity rating: **S** (a day), **M** (a week), **L** (a
 
 ---
 
-## Where we are today (0.1.0-beta)
+## Where we are today (0.2.1-beta)
 
 - ✅ Live view over USB via libgphoto2 (hundreds of DSLR / mirrorless bodies)
 - ✅ Project + scene model, drag-to-reorder, rename, per-scene fps, trash
@@ -27,6 +27,11 @@ Each item has a rough complexity rating: **S** (a day), **M** (a week), **L** (a
 - ✅ Sleep prevention during session
 - ✅ Mock camera for demos and CI
 - ✅ MIT-licensed, open source, portable Windows bundle
+- ✅ Two modes: Add Frames (live view + capture) and Preview (review), Tab to switch *(0.2.0)*
+- ✅ Filmstrip timeline with clickable thumbnails; arrow / Home / End / Shift-arrow navigation; play at scene fps *(0.2.0)*
+- ✅ Picture-in-picture of the other view *(0.2.0)*
+- ✅ Dockable panels (egui_dock), menu bar, Phosphor icons, three themes *(0.2.0)*
+- ✅ Self-contained macOS app (Apple Silicon): libgphoto2 + camera drivers + ffmpeg bundled, `scripts/package-macos.sh` *(0.2.1)*
 
 ---
 
@@ -36,10 +41,10 @@ The essentials that every serious stop-motion tool has. Getting these done takes
 
 ### Playback and timeline (M, blocker)
 
-- 🎯 **Timeline strip** along the bottom of the viewer: thumbnails of every frame in the active scene, clickable to scrub. This is *the* most-used feature in Dragonframe and its absence is the single biggest UX gap.
-- 🎯 **Playback with variable speed** — play the scene at project fps, half speed, quarter speed, in reverse, loop. Space to play/pause, arrow keys to step. (Currently we only have capture on Space.)
+- ✅ **Timeline strip** along the bottom of the viewer: thumbnails of every frame in the active scene, clickable to scrub. This is *the* most-used feature in Dragonframe and its absence is the single biggest UX gap.
+- 🚧 **Playback with variable speed** — play the scene at project fps, half speed, quarter speed, in reverse, loop. Space to play/pause, arrow keys to step. (Done: P plays at scene fps. Still to do: half/quarter speed, reverse, loop.)
 - 🎯 **Loop range** — select a start/end frame on the timeline and loop just that segment.
-- 🎯 **Frame-by-frame scrub** with left/right arrows, holding for autoscrub.
+- ✅ **Frame-by-frame scrub** with left/right arrows, holding for autoscrub.
 - 🎯 **Playback while capturing** — one thread captures, another loops last N frames for review between shots.
 
 ### Takes and versions (S)
@@ -81,14 +86,14 @@ What makes DragonSlayer feel like an intentional product rather than a hobby pro
 
 ### UI overhaul (M-L)
 
-The current UI is functional egui defaults. It's fugly. Concrete work:
+0.2.0 replaced the egui defaults with a themed, dockable layout. What's left:
 
-- ⭐ **Custom theme** — proper dark mode designed for a shooting environment (mostly-black, warm accents, no eye-strain whites). Egui supports theming; we need a cohesive palette.
+- ✅ **Custom theme** — proper dark mode designed for a shooting environment (mostly-black, warm accents, no eye-strain whites). Egui supports theming; we need a cohesive palette.
 - ⭐ **Typography** — bundle a good UI font (Inter, JetBrains Mono for code, or the SF Pro system font on macOS). Set consistent sizes.
-- ⭐ **Icons** — replace text-only buttons with icons + labels. Use a bundled icon font (Lucide, Material Symbols) or SVG sprites.
+- ✅ **Icons** — replace text-only buttons with icons + labels. Use a bundled icon font (Lucide, Material Symbols) or SVG sprites.
 - ⭐ **Proper spacing and elevation** — panel dividers with drag handles, cards with subtle shadows, consistent padding scale.
 - ⭐ **Viewer treatment** — larger, framed, with corner overlays for frame count / scene name / mode indicator (LIVE / LAST / take name).
-- ⭐ **Timeline design** — Dragonframe-style horizontal filmstrip with playhead, in/out markers, loop region.
+- 🚧 **Timeline design** — Dragonframe-style horizontal filmstrip with playhead, in/out markers, loop region.
 - ⭐ **Empty states** — the welcome screen is currently just two buttons on a blank canvas. Illustrated "start here" flow: create project, connect camera, capture first frame.
 - ⭐ **Status states** — the current amber/red dot is fine but the info hierarchy needs work. Persistent camera info panel with battery, storage, exposure readout.
 - ⭐ **Focus mode** — F key hides all panels, viewer goes full-screen with just a minimal control bar. For actual shooting.
@@ -181,7 +186,7 @@ Recommendation: start with **Continuity Camera on macOS** — free, uses existin
 
 ## Suggested next milestones
 
-**0.2.0 — Playback**
+**0.2.0 — Playback** *(shipped: timeline strip, playback at scene fps, plus most of the 0.3.0 UI refresh; loop range and focus mode carried forward)*
 Timeline strip. Playback at project fps. Loop range. Focus mode.
 _Delivers: makes the app usable for actual shooting sessions instead of just capturing._
 
@@ -202,6 +207,8 @@ Reference audio timeline, per-frame notes, multiple takes.
 _Delivers: dialogue lip-sync workflow, professional shot management._
 
 **0.7.0+** — motion control, DMX, chroma key, multi-camera, cloud review.
+
+**Distribution (any release)** — signed + notarised Mac build (needs a paid Apple Developer account; removes the first-launch "Open Anyway" step), Intel Mac build, and Mac + Windows zips on the same release.
 
 ---
 

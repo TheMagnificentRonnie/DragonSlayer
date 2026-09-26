@@ -291,7 +291,7 @@
               -- FREE STOP-MOTION FOR REAL CAMERAS --
 </pre>
       <div class="meta">
-        <span>ver <b>0.1.0-BETA</b></span>
+        <span>ver <b>0.2.1-BETA</b></span>
         <span>MIT license</span>
         <span>Windows &amp; macOS</span>
         <span>FREEWARE</span>
@@ -303,7 +303,7 @@
   <p class="prompt">A stop-motion capture program for the DSLR or mirrorless camera you already own.<br>Tethers over USB. Live view + onion skinning. Compiles to MP4 or ProRes.<br>Nothing else. Built for classrooms, hobbyists, and the perpetually broke.<span class="cursor"></span></p>
 
   <div class="btnrow">
-    <a class="btn" href="https://github.com/TheMagnificentRonnie/DragonSlayer/releases/latest">▼ DOWNLOAD 0.2.0-BETA</a>
+    <a class="btn" href="https://github.com/TheMagnificentRonnie/DragonSlayer/releases">▼ DOWNLOAD 0.2.1-BETA</a>
     <a class="btn amber" href="https://github.com/TheMagnificentRonnie/DragonSlayer">&gt; SOURCE ON GITHUB</a>
     <a class="btn" href="https://github.com/TheMagnificentRonnie/DragonSlayer/blob/main/MAC-DEV-SETUP.md">? MAC SETUP GUIDE</a>
     <a class="btn kofi" href="https://ko-fi.com/ronnie54882" target="_blank" rel="noopener">♥ TIP ON KO-FI</a>
@@ -316,7 +316,7 @@
     <span>CAMERA: PANASONIC GH5 · LIVE</span>
   </div>
   <div class="placeholder">
-    ░▒▓█ SCREENSHOT COMING WITH v0.1.1 █▓▒░<br><br>meanwhile: try it and take your own.
+    ░▒▓█ SCREENSHOT COMING SOON █▓▒░<br><br>meanwhile: try it and take your own.
   </div>
 </div>
 
@@ -330,6 +330,7 @@
   <div class="card"><div class="glyph">▚▚▚</div><h3>MP4 &amp; ProRes</h3><p>H.264 for playing anywhere, ProRes 422 for editing. Source / 4K / 1080p, crop or fit.</p></div>
   <div class="card"><div class="glyph">▓ ▓ ▓</div><h3>Dockable panels</h3><p>Scenes, Viewer, Timeline, Camera, Onion, Export. Grab a tab, drop it anywhere.</p></div>
   <div class="card"><div class="glyph">⚙ ⚙ ⚙</div><h3>Windows drivers included</h3><p>Bundles Zadig for a one-click WinUSB swap. In-app button, no rabbit hole.</p></div>
+    <div class="card"><div class="glyph">▣ ▣ ▣</div><h3>Mac app, batteries in</h3><p>Download, drag to Applications, shoot. Camera drivers and ffmpeg ride inside. Apple Silicon.</p></div>
   <div class="card"><div class="glyph">◉ ◎ ◉</div><h3>Three themes</h3><p>Dark teal (default), dark amber, or light. Preferences → Theme. Swap live.</p></div>
 </div>
 
@@ -367,7 +368,7 @@
 
 <h2>&gt; Get started · Windows</h2>
 <ol class="steps">
-  <li><b>Download the pre-built zip</b> from the <a href="https://github.com/TheMagnificentRonnie/DragonSlayer/releases">Releases page</a>. Unzip anywhere.</li>
+  <li><b>Download</b> <code>dragonslayer-…-windows-x64.zip</code> from the <a href="https://github.com/TheMagnificentRonnie/DragonSlayer/releases">Releases page</a> — the newest release with a Windows zip (currently <a href="https://github.com/TheMagnificentRonnie/DragonSlayer/releases/tag/v0.2.0-beta">0.2.0-beta</a>). Unzip anywhere.</li>
   <li><b>Plug in your camera</b> on USB. Turn it on. Set the USB mode to <code>PC</code>, <code>PC(Tether)</code> or <code>PTP</code>.</li>
   <li><b>Run</b> <code>DragonSlayer.cmd</code>.</li>
   <li><b>If Windows still owns the camera driver</b>, click <code>Set up USB driver…</code> top-right. The bundled Zadig does the one-time WinUSB swap. Nothing on the camera itself changes.</li>
@@ -376,12 +377,13 @@
 
 <h2>&gt; Get started · macOS</h2>
 <ol class="steps">
-  <li><b>Install Rust + libgphoto2.</b> Full walkthrough in <a href="https://github.com/TheMagnificentRonnie/DragonSlayer/blob/main/MAC-DEV-SETUP.md">the macOS setup guide</a> — assumes no previous experience.</li>
-  <li><b>Quit Photos and Image Capture</b>, then <code>killall ptpcamerad</code>.</li>
-  <li><b>Plug in your camera</b> in PC / PTP mode.</li>
-  <li><b>Build and run:</b> <code>cargo run --release --features gphoto2 -p dragonslayer-app</code></li>
+  <li><b>Download</b> <code>dragonslayer-…-macos-arm64.zip</code> from the <a href="https://github.com/TheMagnificentRonnie/DragonSlayer/releases">Releases page</a>. Apple Silicon (M1 or newer), macOS 12+.</li>
+  <li><b>Unzip it</b> and drag <code>DragonSlayer.app</code> into Applications.</li>
+  <li><b>First launch only:</b> macOS blocks unsigned apps once. Double-click, click <code>Done</code>, then <b>System Settings → Privacy &amp; Security → Open Anyway</b>. (Or: <code>xattr -dr com.apple.quarantine /Applications/DragonSlayer.app</code>)</li>
+  <li><b>Plug in your camera</b> in PC / PC(Tether) / PTP mode. Quit Photos and Image Capture if they pop up.</li>
   <li><b>Click New project</b>, <kbd>Space</kbd> to capture, <kbd>H</kbd> for help.</li>
 </ol>
+<p class="muted">Rather build it yourself? The <a href="https://github.com/TheMagnificentRonnie/DragonSlayer/blob/main/MAC-DEV-SETUP.md">macOS setup guide</a> starts from zero.</p>
 
 <h2>&gt; Keyboard</h2>
 <table>
