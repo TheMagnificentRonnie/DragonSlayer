@@ -152,13 +152,6 @@ Recommendation: start with **Continuity Camera on macOS** — free, uses existin
 - 🌱 **Web review viewer** — client / director watches your latest scene in a browser without installing anything. Frame-by-frame comments.
 - 🌱 **Multi-user editing lock** — if two people open the same scene, second gets read-only + notification.
 
-### AI-assisted (L-XL)
-
-- 🌱 **Auto-onion** — detect what moves between frames and highlight only the changing parts.
-- 🌱 **In-betweening suggestion** — given frames N and N+2, generate a suggested N+1 for reference (never as a final frame — animation ethics).
-- 🌱 **Auto-clean-up** — detect and mask fingers, rigging wires, tape marks between captures. Reversible.
-- 🌱 **Smart onion suggestion** — the app suggests how many previous frames make sense for the current type of motion.
-
 ### Windows: no-Zadig capture (L)
 
 - 🌱 **libgphoto2-wpd** — fork libgphoto2, add a Windows Portable Devices transport so cameras work through the stock Windows driver. Spike started in `../libgphoto2-wpd` repo. Would remove the biggest Windows onboarding friction.
@@ -216,6 +209,7 @@ _Delivers: dialogue lip-sync workflow, professional shot management._
 
 Kept out of scope on purpose so the app stays focused:
 
+- **Any form of AI / generative features.** No auto-onion, no in-betweening, no smart cleanup, no ML-based frame prediction, no "helpful" model calls. Ever. Stop-motion is a craft — every frame is a person's choice. This is a hard line, not a scoping decision.
 - Full video editor / NLE — export to Premiere/Resolve/FCP instead.
 - Vector animation, tweening, drawing tools — that's Toon Boom / TVPaint territory.
 - 3D rigging / puppeting — that's Blender / Cascadeur.
@@ -223,7 +217,7 @@ Kept out of scope on purpose so the app stays focused:
 - Social sharing / built-in exporters to TikTok/YouTube — a directory of MP4s is enough.
 - Payment / subscription features — this stays free and open source.
 
-Any of these could change if there's a compelling case, but the bar is high.
+The rest could change with a compelling case. The AI line cannot.
 
 ---
 
