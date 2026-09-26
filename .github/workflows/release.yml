@@ -71,37 +71,26 @@ jobs:
           echo "Uploading to tag $TAG"
           gh release upload "$TAG" target/dist/dragonslayer-*-windows-x64.zip --clobber
 
-  # ------------------------------------------------------------------ macOS
+  # ------------------------------------------------------------- macOS arm64
+  # scripts/package-macos.sh is Apple Silicon–only for now (its bundled ffmpeg
+  # is an arm64 static build). Intel-mac support can be added later by teaching
+  # the script to swap ffmpeg by arch and re-adding a matrix entry here.
   macos:
-    name: macOS ${{ matrix.arch }} zip
-    runs-on: ${{ matrix.runner }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - arch: arm64
-            runner: macos-14           # Apple Silicon
-          - arch: x86_64
-            runner: macos-13           # Intel
+    name: macOS arm64 zip
+    runs-on: macos-14   # Apple Silicon
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install libgphoto2 + ffmpeg + pkg-config
+      - name: Install libgphoto2 + pkg-config
         run: |
-          brew install libgphoto2 ffmpeg pkg-config
+          brew install libgphoto2 pkg-config
 
       - name: Install Rust
         run: |
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
-      - name: Build (with gphoto2)
-        run: |
-          export PKG_CONFIG_PATH="$(brew --prefix)/lib/pkgconfig"
-          cargo build --release --features gphoto2 \
-            -p dragonslayer-cli -p dragonslayer-app
-
-      - name: Bundle (relocatable .app-adjacent folder)
+      - name: Build & bundle
         run: bash scripts/package-macos.sh
 
       - name: Upload asset to the release
@@ -111,4 +100,4 @@ jobs:
           TAG="${GITHUB_REF##refs/tags/}"
           if [ -z "$TAG" ] || [ "$TAG" = "$GITHUB_REF" ]; then TAG="${{ github.event.inputs.tag }}"; fi
           echo "Uploading to tag $TAG"
-          gh release upload "$TAG" target/dist/dragonslayer-*-macos-*.zip --clobber
+          gh release upload "$TAG" target/dist/dragonslayer-*-macos-arm64.zip --clobber
