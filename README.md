@@ -139,6 +139,8 @@ brew install libgphoto2 ffmpeg pkg-config
 cargo build --release --features gphoto2 -p dragonslayer-cli -p dragonslayer-app
 ```
 
+**Fresh Mac?** Full setup guide — Homebrew, git, SSH keys, editor setup, common macOS build errors — in [`MAC-DEV-SETUP.md`](MAC-DEV-SETUP.md).
+
 ## Command line
 
 The CLI has the same operations as the app — useful for testing, scripting or headless captures.
