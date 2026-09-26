@@ -143,9 +143,6 @@ impl Mode {
     fn is_add_frames(self) -> bool {
         matches!(self, Mode::AddFrames)
     }
-    fn is_preview(self) -> bool {
-        matches!(self, Mode::Preview { .. })
-    }
     fn is_playing(self) -> bool {
         matches!(self, Mode::Preview { playing: true, .. })
     }
@@ -697,7 +694,6 @@ impl DragonSlayerApp {
         });
     }
 
-    /// Left panel: scene list.
     // ---- dockable tab bodies -------------------------------------------
 
     fn tab_scenes(&mut self, ui: &mut egui::Ui) {
@@ -822,154 +818,6 @@ impl DragonSlayerApp {
         self.timeline(ui);
     }
 
-    fn nav_panel(&mut self, ui: &mut egui::Ui) {
-        use egui_phosphor::regular as ph;
-        ui.add_space(6.0);
-        ui.horizontal(|ui| {
-            ui.label(RichText::new(format!("{}  Scenes", ph::FILM_STRIP)).heading());
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                if ui.button(ph::PLUS).on_hover_text("Add scene").clicked() {
-                    let n = self.scenes.len() + 1;
-                    let after = self.active_row().map(|r| r.id.clone());
-                    self.edit(|p| p.add_scene(&format!("Scene {n}"), after.as_deref()).map(|_| ()));
-                }
-            });
-        });
-        ui.separator();
-        self.scene_list(ui);
-    }
-
-    /// Right panel: camera status, capture / delete, onion controls, compile.
-    fn settings_panel(&mut self, ui: &mut egui::Ui) {
-        use egui_phosphor::regular as ph;
-        ui.add_space(6.0);
-        ui.label(RichText::new(format!("{}  Camera", ph::CAMERA)).heading());
-        ui.separator();
-        egui::Frame::new().inner_margin(Margin::same(4)).show(ui, |ui| self.camera_status(ui));
-        ui.add_space(4.0);
-        let can_capture = self.camera_ready() && !self.capturing && self.active_row().is_some();
-        let label = if self.capturing { format!("{}  Capturing…", ph::RECORD) } else { format!("{}  Capture", ph::CAMERA) };
-        let capture = egui::Button::new(RichText::new(label).size(16.0).strong())
-            .fill(crate::theme::palette().accent_deep)
-            .min_size(Vec2::new(ui.available_width(), 44.0));
-        if ui.add_enabled(can_capture, capture).on_hover_text("Space").clicked() {
-            self.capture();
-        }
-        let has_frames = self.active_row().is_some_and(|r| r.count > 0);
-        if ui
-            .add_enabled(
-                has_frames,
-                egui::Button::new(format!("{}  Delete last frame", ph::TRASH))
-                    .min_size(Vec2::new(ui.available_width(), 32.0)),
-            )
-            .on_hover_text("Backspace — moves the frame to the scene's trash")
-            .clicked()
-        {
-            self.delete_last();
-        }
-
-        ui.add_space(12.0);
-        ui.label(RichText::new(format!("{}  Onion skin", ph::STACK)).heading());
-        ui.separator();
-        ui.checkbox(&mut self.onion_on, "Show onion skin (O)");
-        ui.add_enabled_ui(self.onion_on, |ui| {
-            ui.add(egui::Slider::new(&mut self.onion_count, 1..=5).text("frames"));
-            ui.add(egui::Slider::new(&mut self.onion_opacity, 0.05..=0.9).text("opacity"));
-            ui.checkbox(&mut self.onion_edges, "Outlines only (crisper over live view)");
-        });
-
-        ui.add_space(12.0);
-        ui.label(RichText::new(format!("{}  Export", ph::EXPORT)).heading());
-        ui.separator();
-        if ui
-            .add(egui::Button::new(format!("{}  Compile video…", ph::EXPORT))
-                .min_size(Vec2::new(ui.available_width(), 36.0)))
-            .clicked()
-        {
-            self.compile.open = true;
-            self.compile.result = None;
-        }
-
-        // Message area (bottom of the panel so it doesn't shift other controls).
-        if let Some((msg, is_err, at)) = &self.message
-            && (at.elapsed() < Duration::from_secs(8) || *is_err)
-        {
-            ui.add_space(12.0);
-            ui.separator();
-            let color = if *is_err { crate::theme::palette().error } else { crate::theme::palette().text_muted };
-            ui.label(RichText::new(msg).color(color).small());
-        }
-    }
-
-    /// Bottom panel: transport + timeline strip (visible in Preview; in Add Frames it just shows a hint).
-    fn timeline_panel(&mut self, ui: &mut egui::Ui) {
-        use egui_phosphor::regular as ph;
-        ui.add_space(4.0);
-        ui.horizontal(|ui| {
-            let has_frames = !self.frames.is_empty();
-            let playing = self.mode.is_playing();
-            ui.add_enabled_ui(has_frames, |ui| {
-                if ui.button(ph::SKIP_BACK).on_hover_text("Home — first frame").clicked() {
-                    self.jump_to(Some(0));
-                }
-                if ui.button(ph::CARET_LEFT).on_hover_text("← previous frame (Shift ×10)").clicked() {
-                    self.step(-1);
-                }
-                let play_icon = if playing { ph::PAUSE } else { ph::PLAY };
-                let play_btn = egui::Button::new(RichText::new(play_icon).size(18.0).strong())
-                    .fill(crate::theme::palette().accent_deep)
-                    .min_size(Vec2::new(52.0, 32.0));
-                if ui.add(play_btn).on_hover_text("P — play/pause at scene fps").clicked() {
-                    self.toggle_play();
-                }
-                if ui.button(ph::CARET_RIGHT).on_hover_text("→ next frame (Shift ×10)").clicked() {
-                    self.step(1);
-                }
-                if ui.button(ph::SKIP_FORWARD).on_hover_text("End — last frame").clicked() {
-                    self.jump_to_end();
-                }
-            });
-            if !self.frames.is_empty() {
-                let n = self.frames.len();
-                let idx = self.mode.preview_index().unwrap_or(n - 1);
-                ui.separator();
-                ui.label(
-                    RichText::new(format!("Frame {} / {}", idx + 1, n))
-                        .monospace()
-                        .color(crate::theme::palette().text_muted),
-                );
-            }
-        });
-        self.timeline(ui);
-    }
-
-    fn top_bar(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal(|ui| {
-            ui.heading("DragonSlayer");
-            ui.label(RichText::new(concat!("v", env!("CARGO_PKG_VERSION"))).small().color(ui.visuals().weak_text_color()));
-            if let Some(p) = &self.project {
-                ui.separator();
-                ui.label(RichText::new(p.name()).strong());
-            }
-            ui.separator();
-            if ui.button("New project…").clicked() {
-                self.new_project_dialog();
-            }
-            if ui.button("Open…").clicked()
-                && let Some(dir) = rfd::FileDialog::new().set_title("Open a DragonSlayer project folder").pick_folder() {
-                    self.open_project(&dir);
-                }
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                if ui.button("Help (H)").on_hover_text("Everything you need to shoot — or press H").clicked() {
-                    log_line(&format!("Help button clicked; help_open was {}", self.help_open));
-                    self.help_open = true;
-                }
-                ui.separator();
-                self.camera_status(ui);
-            });
-        });
-    }
-
     fn camera_status(&mut self, ui: &mut egui::Ui) {
         // Actionable driver state gets its own row with a Set up button.
         if let Status::WrongDriver { name } = &self.status {
@@ -981,19 +829,19 @@ impl DragonSlayerApp {
             {
                 launch_driver_setup();
             }
-            ui.label(RichText::new(format!("{n} · needs driver setup")).color(Color32::from_rgb(230, 160, 60)));
+            ui.label(RichText::new(format!("{n} · needs driver setup")).color(crate::theme::palette().warn));
             let (rect, _) = ui.allocate_exact_size(Vec2::splat(10.0), Sense::hover());
-            ui.painter().circle_filled(rect.center(), 5.0, Color32::from_rgb(230, 160, 60));
+            ui.painter().circle_filled(rect.center(), 5.0, crate::theme::palette().warn);
             return;
         }
         let (dot, text, detail) = match &self.status {
             Status::Connected { name, caps } => (
-                Color32::from_rgb(60, 180, 90),
+                crate::theme::palette().ok,
                 format!("{name} · connected"),
                 (!caps.live_view).then(|| "No live view on this model: onion skin shows over the last frame.".to_string()),
             ),
             Status::Searching => (
-                Color32::from_rgb(200, 160, 40),
+                crate::theme::palette().warn,
                 "No camera".into(),
                 Some(connect_hint().to_string()),
             ),
@@ -1003,7 +851,7 @@ impl DragonSlayerApp {
                 Some("Rebuild with `--features gphoto2`, or start with --mock to try the mock camera.".into()),
             ),
             Status::Problem { name, message } => (
-                Color32::from_rgb(220, 70, 60),
+                crate::theme::palette().error,
                 name.clone().unwrap_or_else(|| "Camera".into()) + " · problem",
                 Some(message.clone()),
             ),
@@ -1154,110 +1002,6 @@ impl DragonSlayerApp {
         }
     }
 
-    fn controls(&mut self, ui: &mut egui::Ui) {
-        ui.add_space(6.0);
-
-        // Big mode toggle at the top. Two modes: Add Frames (live view + Space captures)
-        // and Preview (browse captured frames with arrows / play).
-        ui.horizontal(|ui| {
-            let has_frames = !self.frames.is_empty();
-            let in_add = self.mode.is_add_frames();
-            let add_btn = egui::Button::new(RichText::new("Add Frames").size(16.0).strong())
-                .fill(if in_add { Color32::from_rgb(80, 130, 200) } else { Color32::from_gray(50) })
-                .min_size(Vec2::new(140.0, 36.0));
-            if ui.add(add_btn).on_hover_text("Tab · shoot into the active scene").clicked() {
-                self.mode = Mode::AddFrames;
-            }
-            let preview_btn = egui::Button::new(RichText::new("Preview").size(16.0).strong())
-                .fill(if !in_add { Color32::from_rgb(80, 130, 200) } else { Color32::from_gray(50) })
-                .min_size(Vec2::new(140.0, 36.0));
-            if ui.add_enabled(has_frames, preview_btn).on_hover_text("Tab · browse captured frames").clicked() {
-                self.jump_to_end();
-            }
-
-            ui.separator();
-            ui.checkbox(&mut self.onion_on, "Onion skin").on_hover_text("O");
-            ui.add_enabled_ui(self.onion_on, |ui| {
-                ui.add(egui::Slider::new(&mut self.onion_count, 1..=5).text("frames"));
-                ui.add(egui::Slider::new(&mut self.onion_opacity, 0.05..=0.9).text("opacity").show_value(false));
-                ui.checkbox(&mut self.onion_edges, "Outlines")
-                    .on_hover_text("Edges only of previous frames — clearer over live view");
-            });
-
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                if ui.button("Compile…").clicked() {
-                    self.compile.open = true;
-                    self.compile.result = None;
-                }
-            });
-        });
-
-        // Mode-specific action row underneath.
-        ui.add_space(4.0);
-        ui.horizontal(|ui| {
-            match self.mode {
-                Mode::AddFrames => {
-                    let can_capture = self.camera_ready() && !self.capturing && self.active_row().is_some();
-                    let label = if self.capturing { "Capturing…" } else { "● Capture" };
-                    let capture = egui::Button::new(RichText::new(label).size(20.0).strong())
-                        .fill(Color32::from_rgb(190, 50, 45))
-                        .min_size(Vec2::new(180.0, 44.0));
-                    if ui.add_enabled(can_capture, capture).on_hover_text("Space").clicked() {
-                        self.capture();
-                    }
-                    let has_frames = self.active_row().is_some_and(|r| r.count > 0);
-                    if ui
-                        .add_enabled(
-                            has_frames,
-                            egui::Button::new("Delete last").min_size(Vec2::new(0.0, 44.0)),
-                        )
-                        .on_hover_text("Backspace — moves the frame to the scene's trash folder")
-                        .clicked()
-                    {
-                        self.delete_last();
-                    }
-                }
-                Mode::Preview { index, playing, .. } => {
-                    let count = self.frames.len();
-                    if ui.button("⏮").on_hover_text("Home — first frame").clicked() {
-                        self.jump_to(Some(0));
-                    }
-                    if ui.button("◀").on_hover_text("Left — previous frame (Shift ×10)").clicked() {
-                        self.step(-1);
-                    }
-                    let play_label = if playing { "⏸ Pause" } else { "▶ Play" };
-                    let play_btn = egui::Button::new(RichText::new(play_label).size(16.0).strong())
-                        .fill(Color32::from_rgb(50, 130, 90))
-                        .min_size(Vec2::new(110.0, 40.0));
-                    if ui.add(play_btn).on_hover_text("P — play/pause at scene fps").clicked() {
-                        self.toggle_play();
-                    }
-                    if ui.button("▶|").on_hover_text("Right — next frame (Shift ×10)").clicked() {
-                        self.step(1);
-                    }
-                    if ui.button("⏭").on_hover_text("End — last frame").clicked() {
-                        self.jump_to_end();
-                    }
-                    ui.separator();
-                    ui.label(
-                        RichText::new(format!("Frame {} / {}", index + 1, count.max(1)))
-                            .monospace()
-                            .size(15.0),
-                    );
-                }
-            }
-        });
-
-        ui.horizontal(|ui| {
-            if let Some((msg, is_err, at)) = &self.message
-                && (at.elapsed() < Duration::from_secs(8) || *is_err) {
-                    let color = if *is_err { Color32::from_rgb(220, 80, 70) } else { ui.visuals().weak_text_color() };
-                    ui.label(RichText::new(msg).color(color));
-                }
-        });
-        ui.add_space(4.0);
-    }
-
     fn viewer(&mut self, ui: &mut egui::Ui) {
         let area = ui.available_rect_before_wrap();
         ui.painter().rect_filled(area, 0.0, Color32::from_gray(18));
@@ -1380,8 +1124,8 @@ impl DragonSlayerApp {
                 (
                     self.live.clone(),
                     "LIVE".to_string(),
-                    Color32::from_rgb(230, 60, 60),
-                    Color32::from_rgb(230, 90, 90),
+                    crate::theme::palette().live,
+                    crate::theme::palette().live,
                     Some(Mode::AddFrames),
                     show,
                 )
@@ -1490,14 +1234,14 @@ impl DragonSlayerApp {
         }
 
         // Click to jump to a frame.
-        if resp.clicked() || resp.dragged() {
-            if let Some(p) = resp.interact_pointer_pos() {
-                let x = p.x - rect.left() - 4.0;
-                if x >= 0.0 {
-                    let draw_i = (x / stride).floor() as usize;
-                    let target = (start + draw_i).min(n - 1);
-                    self.mode = Mode::Preview { index: target, playing: false, last_advance: Instant::now() };
-                }
+        if (resp.clicked() || resp.dragged())
+            && let Some(p) = resp.interact_pointer_pos()
+        {
+            let x = p.x - rect.left() - 4.0;
+            if x >= 0.0 {
+                let draw_i = (x / stride).floor() as usize;
+                let target = (start + draw_i).min(n - 1);
+                self.mode = Mode::Preview { index: target, playing: false, last_advance: Instant::now() };
             }
         }
     }

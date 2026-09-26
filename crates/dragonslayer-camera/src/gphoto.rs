@@ -160,7 +160,7 @@ fn worker(wanted: DeviceInfo, cmds: Receiver<Cmd>, ready: Sender<Result<Capabili
 
     let mut live: Option<LiveViewSender> = None;
     let mut seq = 0u64;
-    let outcome = 'outer: loop {
+    'outer: loop {
         // Block while idle; poll while live view is running.
         let cmd = if live.is_some() {
             match cmds.try_recv() {
@@ -205,12 +205,11 @@ fn worker(wanted: DeviceInfo, cmds: Receiver<Cmd>, ready: Sender<Result<Capabili
                 Err(_) => live = None,
             }
         }
-    };
+    }
     // Release the PTP session cleanly so the camera doesn't wedge (gphoto2's Drop
     // only unrefs the struct; without gp_camera_exit the camera stays in the
     // half-open state we hit earlier).
     exit_camera(&camera, &ctx);
-    let _ = outcome;
 }
 
 /// Call `gp_camera_exit` via the sys crate. Ignored on failure — the camera may
