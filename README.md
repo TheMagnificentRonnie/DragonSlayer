@@ -46,6 +46,35 @@ Real cameras are already sitting in classrooms, in kids' hands and in student ki
 
 DragonSlayer is that missing piece. One camera library ([libgphoto2](http://gphoto.org)) covers hundreds of DSLRs and mirrorless bodies. One window, one keyboard, one film.
 
+## ⚠ What DragonSlayer is *not*
+
+**DragonSlayer captures and compiles. It does not edit video.**
+
+Once your scenes are shot and compiled to MP4 or MOV, DragonSlayer's job is done. To cut those clips together, add sound, colour-grade, subtitle, or export for social/broadcast, use a video editor. All of these are free:
+
+| Editor | Platform | Notes |
+|---|---|---|
+| [DaVinci Resolve](https://www.blackmagicdesign.com/products/davinciresolve) | Windows / macOS / Linux | Free version is genuinely professional. Colour grading is best-in-class. What most working editors would recommend if you were only going to learn one tool. |
+| [Kdenlive](https://kdenlive.org) | Windows / macOS / Linux | Free and open source, KDE project. Multi-track timeline, proxy workflow, decent effects. Very student-friendly. |
+| [Shotcut](https://shotcut.org) | Windows / macOS / Linux | Free and open source, straightforward interface, wide format support. Good "just cuts and titles" tool. |
+| [OpenShot](https://www.openshot.org) | Windows / macOS / Linux | Free and open source. The friendliest first-time editor of the bunch. Fewer features than Kdenlive but a shorter learning curve. |
+| [Blender](https://www.blender.org) — Video Sequence Editor | Windows / macOS / Linux | Free and open source. Better known for 3D, but has a solid built-in NLE. Useful if you're already using Blender for other work. |
+| [iMovie](https://www.apple.com/imovie/) | macOS / iOS | Free with any Mac. Made for simple story cuts with music and titles. |
+| [Clipchamp](https://www.microsoft.com/en-us/clipchamp) | Windows | Free with Windows 11. Web-first, quick titles/transitions, good for social clips. |
+| [CapCut](https://www.capcut.com) | Windows / macOS / Web / mobile | Free. Very popular for short-form; some concerns around data privacy — check before using for schoolwork. |
+| [HitFilm](https://fxhome.com/product/hitfilm) — free tier | Windows / macOS | Free tier is real, VFX-oriented. Watermark on some presets in the free version. |
+
+Typical DragonSlayer → editor workflow:
+
+1. Shoot your scenes in DragonSlayer.
+2. Compile each scene (or the whole project) to MP4 or ProRes MOV.
+3. Import those clips into your editor of choice, along with any music, dialogue or sound effects.
+4. Cut, colour, title, export.
+
+Compiled videos live in `<project>/exports/` inside your project folder — copy or import from there.
+
+DragonSlayer is deliberately kept small: it does one job (capture + compile) and hands off cleanly. If you find yourself wishing it *could* edit, that's a sign you're ready for a real editor.
+
 ## Features
 
 - **Live view over USB** on any camera libgphoto2 supports live view for

@@ -35,7 +35,7 @@ fn main() -> eframe::Result {
         "DragonSlayer",
         options,
         Box::new(move |cc| {
-            theme::install(&cc.egui_ctx);
+            theme::install(&cc.egui_ctx, theme::ThemeChoice::DarkTeal);
             Ok(Box::new(app::DragonSlayerApp::new(cc, backend, project)))
         }),
     )

@@ -102,6 +102,7 @@ pub struct DragonSlayerApp {
     /// sent anything yet; we send on the first frame to establish state.
     want_live_cached: Option<bool>,
     dock_state: DockState<Tab>,
+    theme_choice: crate::theme::ThemeChoice,
     /// Wall-clock time of the last playback frame advance; also used as a repaint anchor.
     playback_tick: Instant,
     capturing: bool,
@@ -177,6 +178,7 @@ impl DragonSlayerApp {
             mode: Mode::AddFrames,
             want_live_cached: None,
             dock_state: Tab::default_layout(),
+            theme_choice: crate::theme::ThemeChoice::DarkTeal,
             playback_tick: Instant::now(),
             capturing: false,
             onion_on: true,
@@ -552,6 +554,17 @@ impl DragonSlayerApp {
                     }
                 }
                 ui.separator();
+                ui.menu_button(format!("{}  Preferences", ph::GEAR), |ui| {
+                    ui.label(RichText::new("Theme").small().color(crate::theme::palette().text_muted));
+                    let ctx = ui.ctx().clone();
+                    for choice in crate::theme::ThemeChoice::ALL {
+                        if ui.radio(self.theme_choice == choice, choice.label()).clicked() {
+                            self.theme_choice = choice;
+                            crate::theme::install(&ctx, choice);
+                        }
+                    }
+                });
+                ui.separator();
                 if ui.button(format!("{}  Quit", ph::SIGN_OUT)).clicked() {
                     ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
                 }
@@ -625,9 +638,9 @@ impl DragonSlayerApp {
                 ui.label(
                     RichText::new(concat!("v", env!("CARGO_PKG_VERSION")))
                         .small()
-                        .color(crate::theme::palette::TEXT_DIM),
+                        .color(crate::theme::palette().text_dim),
                 );
-                ui.label(RichText::new("DragonSlayer").strong().color(crate::theme::palette::ACCENT));
+                ui.label(RichText::new("DragonSlayer").strong().color(crate::theme::palette().accent));
             });
         });
     }
@@ -710,8 +723,8 @@ impl DragonSlayerApp {
         } else {
             format!("{}  Capture", ph::CAMERA)
         };
-        let capture = egui::Button::new(RichText::new(label).size(16.0).strong().color(Color32::BLACK))
-            .fill(crate::theme::palette::ACCENT)
+        let capture = egui::Button::new(RichText::new(label).size(16.0).strong().color(crate::theme::palette().on_accent))
+            .fill(crate::theme::palette().accent)
             .min_size(Vec2::new(ui.available_width(), 44.0));
         if ui.add_enabled(can_capture, capture).on_hover_text("Space").clicked() {
             self.capture();
@@ -757,7 +770,7 @@ impl DragonSlayerApp {
         ui.label(
             RichText::new("Renders your scenes to MP4 or ProRes MOV using ffmpeg. Files land in exports/ inside the project folder and are never overwritten.")
                 .small()
-                .color(crate::theme::palette::TEXT_MUTED),
+                .color(crate::theme::palette().text_muted),
         );
     }
 
@@ -775,8 +788,8 @@ impl DragonSlayerApp {
                     self.step(-1);
                 }
                 let play_icon = if playing { ph::PAUSE } else { ph::PLAY };
-                let play_btn = egui::Button::new(RichText::new(play_icon).size(18.0).strong().color(Color32::BLACK))
-                    .fill(crate::theme::palette::ACCENT)
+                let play_btn = egui::Button::new(RichText::new(play_icon).size(18.0).strong().color(crate::theme::palette().on_accent))
+                    .fill(crate::theme::palette().accent)
                     .min_size(Vec2::new(52.0, 30.0));
                 if ui.add(play_btn).on_hover_text("P — play/pause at scene fps").clicked() {
                     self.toggle_play();
@@ -795,7 +808,7 @@ impl DragonSlayerApp {
                 ui.label(
                     RichText::new(format!("Frame {} / {}", idx + 1, n))
                         .monospace()
-                        .color(crate::theme::palette::TEXT_MUTED),
+                        .color(crate::theme::palette().text_muted),
                 );
             }
         });
@@ -830,7 +843,7 @@ impl DragonSlayerApp {
         let can_capture = self.camera_ready() && !self.capturing && self.active_row().is_some();
         let label = if self.capturing { format!("{}  Capturing…", ph::RECORD) } else { format!("{}  Capture", ph::CAMERA) };
         let capture = egui::Button::new(RichText::new(label).size(16.0).strong())
-            .fill(crate::theme::palette::ACCENT_DEEP)
+            .fill(crate::theme::palette().accent_deep)
             .min_size(Vec2::new(ui.available_width(), 44.0));
         if ui.add_enabled(can_capture, capture).on_hover_text("Space").clicked() {
             self.capture();
@@ -876,7 +889,7 @@ impl DragonSlayerApp {
         {
             ui.add_space(12.0);
             ui.separator();
-            let color = if *is_err { crate::theme::palette::ERROR } else { crate::theme::palette::TEXT_MUTED };
+            let color = if *is_err { crate::theme::palette().error } else { crate::theme::palette().text_muted };
             ui.label(RichText::new(msg).color(color).small());
         }
     }
@@ -897,7 +910,7 @@ impl DragonSlayerApp {
                 }
                 let play_icon = if playing { ph::PAUSE } else { ph::PLAY };
                 let play_btn = egui::Button::new(RichText::new(play_icon).size(18.0).strong())
-                    .fill(crate::theme::palette::ACCENT_DEEP)
+                    .fill(crate::theme::palette().accent_deep)
                     .min_size(Vec2::new(52.0, 32.0));
                 if ui.add(play_btn).on_hover_text("P — play/pause at scene fps").clicked() {
                     self.toggle_play();
@@ -916,7 +929,7 @@ impl DragonSlayerApp {
                 ui.label(
                     RichText::new(format!("Frame {} / {}", idx + 1, n))
                         .monospace()
-                        .color(crate::theme::palette::TEXT_MUTED),
+                        .color(crate::theme::palette().text_muted),
                 );
             }
         });
@@ -1577,8 +1590,8 @@ impl DragonSlayerApp {
                     });
                 } else if ui
                     .add(
-                        egui::Button::new(RichText::new("Compile").strong().size(15.0).color(Color32::BLACK))
-                            .fill(crate::theme::palette::ACCENT)
+                        egui::Button::new(RichText::new("Compile").strong().size(15.0).color(crate::theme::palette().on_accent))
+                            .fill(crate::theme::palette().accent)
                             .min_size(Vec2::new(140.0, 34.0)),
                     )
                     .clicked()
@@ -1669,8 +1682,16 @@ fn help_content(ui: &mut egui::Ui, os: HelpOs) {
     };
     let k = |ui: &mut egui::Ui, key: &str, what: &str| {
         ui.horizontal(|ui| {
-            ui.label(RichText::new(format!(" {key} ")).monospace().background_color(Color32::from_gray(50)));
-            ui.label(what);
+            // Explicit light text on dark chip: the previous version had no colour set
+            // and inherited whatever the ambient style decided, which came out black on
+            // pale grey inside the modal frame.
+            ui.label(
+                RichText::new(format!(" {key} "))
+                    .monospace()
+                    .color(crate::theme::palette().text_primary)
+                    .background_color(crate::theme::palette().bg_elevated),
+            );
+            ui.label(RichText::new(what).color(crate::theme::palette().text_primary));
         });
     };
 

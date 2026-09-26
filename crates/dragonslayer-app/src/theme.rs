@@ -1,53 +1,146 @@
-//! Custom dark theme + Phosphor icon font. Everything the UI needs to stop looking
-//! like the egui defaults.
+//! Themeing: multiple palettes, install/switch at runtime.
+//!
+//! Palette values are read at call sites via `palette()`, which returns the
+//! currently installed palette. Change theme with `install(ctx, choice)` — the
+//! egui `Visuals` and the global palette are updated in sync, so anything that
+//! already read the previous palette repaints against the new one on the next
+//! frame.
+
+use std::sync::{OnceLock, RwLock};
 
 use eframe::egui::{
     self, epaint, style::WidgetVisuals, Color32, CornerRadius, FontDefinitions, FontFamily,
     Margin, Stroke, Vec2, Visuals,
 };
 
-/// Semantic palette — used both by the Visuals below and by app code that needs to
-/// paint bespoke shapes (viewer overlays, mode-toggle chip, timeline playhead).
-pub mod palette {
-    use eframe::egui::Color32;
-
-    // Background surfaces: darkest for the app frame, lifting slightly for panels
-    // and cards so we get a subtle depth cue without hard borders.
-    pub const BG_DEEPEST: Color32 = Color32::from_rgb(14, 15, 18);
-    pub const BG_APP: Color32 = Color32::from_rgb(20, 22, 26);
-    pub const BG_PANEL: Color32 = Color32::from_rgb(26, 29, 34);
-    pub const BG_ELEVATED: Color32 = Color32::from_rgb(34, 38, 44);
-    pub const BG_HOVER: Color32 = Color32::from_rgb(42, 47, 54);
-
-    // Text.
-    pub const TEXT_PRIMARY: Color32 = Color32::from_rgb(230, 232, 236);
-    pub const TEXT_MUTED: Color32 = Color32::from_rgb(150, 155, 165);
-    pub const TEXT_DIM: Color32 = Color32::from_rgb(100, 105, 115);
-
-    // Brand — a warm amber that stays legible on the deep background and evokes
-    // a lit projector without screaming.
-    pub const ACCENT: Color32 = Color32::from_rgb(232, 176, 74);
-    pub const ACCENT_DEEP: Color32 = Color32::from_rgb(196, 138, 48);
-    pub const ACCENT_MUTED: Color32 = Color32::from_rgb(120, 92, 42);
-
-    // Semantic status.
-    pub const OK: Color32 = Color32::from_rgb(90, 190, 130);
-    pub const WARN: Color32 = Color32::from_rgb(230, 180, 70);
-    pub const ERROR: Color32 = Color32::from_rgb(228, 100, 90);
-    pub const LIVE: Color32 = Color32::from_rgb(224, 92, 92);
-
-    pub const BORDER: Color32 = Color32::from_rgb(48, 52, 58);
-    pub const BORDER_SUBTLE: Color32 = Color32::from_rgb(38, 42, 48);
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ThemeChoice {
+    /// Cool cinema teal on deep charcoal. Default.
+    DarkTeal,
+    /// Warm amber on deep charcoal — Dragonframe-esque.
+    DarkAmber,
+    /// Bright paper background for daytime editing.
+    Light,
 }
 
-/// Install fonts + custom Visuals. Call from eframe's setup closure.
-pub fn install(ctx: &egui::Context) {
+impl ThemeChoice {
+    pub const ALL: [ThemeChoice; 3] = [ThemeChoice::DarkTeal, ThemeChoice::DarkAmber, ThemeChoice::Light];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            ThemeChoice::DarkTeal => "Dark · Teal",
+            ThemeChoice::DarkAmber => "Dark · Amber",
+            ThemeChoice::Light => "Light",
+        }
+    }
+}
+
+/// Everything the app needs to paint bespoke shapes: colours the egui `Visuals`
+/// doesn't cover (viewer overlays, PIP borders, timeline playhead, kbd chips).
+#[derive(Clone, Copy)]
+pub struct Palette {
+    pub bg_deepest: Color32,
+    pub bg_app: Color32,
+    pub bg_panel: Color32,
+    pub bg_elevated: Color32,
+    pub bg_hover: Color32,
+
+    pub text_primary: Color32,
+    pub text_muted: Color32,
+    pub text_dim: Color32,
+
+    pub accent: Color32,
+    pub accent_deep: Color32,
+    pub accent_muted: Color32,
+    /// Text placed directly on top of `accent` / `accent_deep`.
+    pub on_accent: Color32,
+
+    pub ok: Color32,
+    pub warn: Color32,
+    pub error: Color32,
+    pub live: Color32,
+
+    pub border: Color32,
+    pub border_subtle: Color32,
+}
+
+const DARK_TEAL: Palette = Palette {
+    bg_deepest: Color32::from_rgb(14, 15, 18),
+    bg_app: Color32::from_rgb(20, 22, 26),
+    bg_panel: Color32::from_rgb(26, 29, 34),
+    bg_elevated: Color32::from_rgb(34, 38, 44),
+    bg_hover: Color32::from_rgb(42, 47, 54),
+    text_primary: Color32::from_rgb(230, 232, 236),
+    text_muted: Color32::from_rgb(150, 155, 165),
+    text_dim: Color32::from_rgb(100, 105, 115),
+    accent: Color32::from_rgb(72, 190, 205),
+    accent_deep: Color32::from_rgb(36, 132, 152),
+    accent_muted: Color32::from_rgb(40, 84, 96),
+    on_accent: Color32::from_rgb(8, 20, 26),
+    ok: Color32::from_rgb(90, 190, 130),
+    warn: Color32::from_rgb(230, 180, 70),
+    error: Color32::from_rgb(228, 100, 90),
+    live: Color32::from_rgb(224, 92, 92),
+    border: Color32::from_rgb(48, 52, 58),
+    border_subtle: Color32::from_rgb(38, 42, 48),
+};
+
+const DARK_AMBER: Palette = Palette {
+    accent: Color32::from_rgb(232, 176, 74),
+    accent_deep: Color32::from_rgb(196, 138, 48),
+    accent_muted: Color32::from_rgb(120, 92, 42),
+    on_accent: Color32::from_rgb(20, 14, 4),
+    ..DARK_TEAL
+};
+
+const LIGHT: Palette = Palette {
+    bg_deepest: Color32::from_rgb(220, 222, 226),
+    bg_app: Color32::from_rgb(238, 240, 244),
+    bg_panel: Color32::from_rgb(248, 249, 251),
+    bg_elevated: Color32::from_rgb(255, 255, 255),
+    bg_hover: Color32::from_rgb(224, 232, 240),
+    text_primary: Color32::from_rgb(24, 26, 30),
+    text_muted: Color32::from_rgb(88, 94, 105),
+    text_dim: Color32::from_rgb(140, 145, 155),
+    accent: Color32::from_rgb(28, 130, 150),
+    accent_deep: Color32::from_rgb(16, 96, 116),
+    accent_muted: Color32::from_rgb(180, 216, 224),
+    on_accent: Color32::from_rgb(248, 253, 255),
+    ok: Color32::from_rgb(30, 140, 90),
+    warn: Color32::from_rgb(190, 130, 30),
+    error: Color32::from_rgb(200, 60, 55),
+    live: Color32::from_rgb(200, 60, 55),
+    border: Color32::from_rgb(200, 204, 210),
+    border_subtle: Color32::from_rgb(220, 224, 230),
+};
+
+fn slot() -> &'static RwLock<Palette> {
+    static SLOT: OnceLock<RwLock<Palette>> = OnceLock::new();
+    SLOT.get_or_init(|| RwLock::new(DARK_TEAL))
+}
+
+/// Current palette. Cheap: `Palette` is Copy and the RwLock read is uncontended.
+pub fn palette() -> Palette {
+    *slot().read().expect("theme palette poisoned")
+}
+
+/// Install the given theme (fonts, Visuals, palette). Safe to call at startup
+/// and every time the user picks a new theme.
+pub fn install(ctx: &egui::Context, choice: ThemeChoice) {
     let mut fonts = FontDefinitions::default();
     egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
     ctx.set_fonts(fonts);
 
+    let p = match choice {
+        ThemeChoice::DarkTeal => DARK_TEAL,
+        ThemeChoice::DarkAmber => DARK_AMBER,
+        ThemeChoice::Light => LIGHT,
+    };
+    *slot().write().expect("theme palette poisoned") = p;
+
+    let is_dark = !matches!(choice, ThemeChoice::Light);
     ctx.all_styles_mut(|style| {
-        style.visuals = build_visuals();
+        style.visuals = build_visuals(&p, is_dark);
         style.spacing.item_spacing = Vec2::new(8.0, 6.0);
         style.spacing.button_padding = Vec2::new(10.0, 6.0);
         style.spacing.window_margin = Margin::same(12);
@@ -58,8 +151,6 @@ pub fn install(ctx: &egui::Context) {
         style.spacing.icon_spacing = 6.0;
         style.spacing.scroll.bar_width = 8.0;
 
-        // Text sizes — slightly larger than the egui defaults so the UI reads well
-        // at a comfortable viewing distance for someone lit only by a monitor.
         use egui::{FontId, TextStyle};
         style.text_styles = [
             (TextStyle::Small, FontId::new(11.0, FontFamily::Proportional)),
@@ -72,65 +163,64 @@ pub fn install(ctx: &egui::Context) {
     });
 }
 
-fn build_visuals() -> Visuals {
-    let mut v = Visuals::dark();
-    let p = palette::BG_APP;
+fn build_visuals(p: &Palette, dark: bool) -> Visuals {
+    let mut v = if dark { Visuals::dark() } else { Visuals::light() };
     let cr = CornerRadius::same(6);
-    let border = Stroke::new(1.0, palette::BORDER_SUBTLE);
+    let border = Stroke::new(1.0, p.border_subtle);
 
-    v.override_text_color = Some(palette::TEXT_PRIMARY);
-    v.hyperlink_color = palette::ACCENT;
-    v.faint_bg_color = palette::BG_PANEL;
-    v.extreme_bg_color = palette::BG_DEEPEST;
-    v.code_bg_color = palette::BG_ELEVATED;
-    v.window_fill = palette::BG_PANEL;
+    v.override_text_color = Some(p.text_primary);
+    v.hyperlink_color = p.accent;
+    v.faint_bg_color = p.bg_panel;
+    v.extreme_bg_color = p.bg_deepest;
+    v.code_bg_color = p.bg_elevated;
+    v.window_fill = p.bg_panel;
     v.window_stroke = border;
     v.window_corner_radius = CornerRadius::same(10);
     v.window_shadow = epaint::Shadow {
         offset: [0, 6],
         blur: 24,
         spread: 0,
-        color: Color32::from_black_alpha(96),
+        color: if dark { Color32::from_black_alpha(96) } else { Color32::from_black_alpha(32) },
     };
-    v.panel_fill = palette::BG_APP;
+    v.panel_fill = p.bg_app;
     v.menu_corner_radius = CornerRadius::same(8);
 
     v.widgets.noninteractive = WidgetVisuals {
-        bg_fill: p,
-        weak_bg_fill: p,
+        bg_fill: p.bg_app,
+        weak_bg_fill: p.bg_app,
         bg_stroke: border,
         corner_radius: cr,
-        fg_stroke: Stroke::new(1.0, palette::TEXT_MUTED),
+        fg_stroke: Stroke::new(1.0, p.text_muted),
         expansion: 0.0,
     };
     v.widgets.inactive = WidgetVisuals {
-        bg_fill: palette::BG_ELEVATED,
-        weak_bg_fill: palette::BG_PANEL,
-        bg_stroke: Stroke::new(1.0, palette::BORDER),
+        bg_fill: p.bg_elevated,
+        weak_bg_fill: p.bg_panel,
+        bg_stroke: Stroke::new(1.0, p.border),
         corner_radius: cr,
-        fg_stroke: Stroke::new(1.0, palette::TEXT_PRIMARY),
+        fg_stroke: Stroke::new(1.0, p.text_primary),
         expansion: 0.0,
     };
     v.widgets.hovered = WidgetVisuals {
-        bg_fill: palette::BG_HOVER,
-        weak_bg_fill: palette::BG_HOVER,
-        bg_stroke: Stroke::new(1.0, palette::ACCENT_MUTED),
+        bg_fill: p.bg_hover,
+        weak_bg_fill: p.bg_hover,
+        bg_stroke: Stroke::new(1.0, p.accent_muted),
         corner_radius: cr,
-        fg_stroke: Stroke::new(1.0, palette::TEXT_PRIMARY),
+        fg_stroke: Stroke::new(1.0, p.text_primary),
         expansion: 1.0,
     };
     v.widgets.active = WidgetVisuals {
-        bg_fill: palette::ACCENT_DEEP,
-        weak_bg_fill: palette::ACCENT_DEEP,
-        bg_stroke: Stroke::new(1.0, palette::ACCENT),
+        bg_fill: p.accent_deep,
+        weak_bg_fill: p.accent_deep,
+        bg_stroke: Stroke::new(1.0, p.accent),
         corner_radius: cr,
-        fg_stroke: Stroke::new(1.0, Color32::BLACK),
+        fg_stroke: Stroke::new(1.0, p.on_accent),
         expansion: 1.0,
     };
     v.widgets.open = v.widgets.hovered;
 
-    v.selection.bg_fill = palette::ACCENT_DEEP;
-    v.selection.stroke = Stroke::new(1.0, palette::ACCENT);
+    v.selection.bg_fill = p.accent_deep;
+    v.selection.stroke = Stroke::new(1.0, p.accent);
 
     v
 }
