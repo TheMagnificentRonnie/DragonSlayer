@@ -14,6 +14,10 @@ const POLL_EVERY: Duration = Duration::from_millis(1000);
 
 pub enum Cmd {
     Capture(Project),
+    /// Request that the camera worker stops (false) or resumes (true) the live-view feed.
+    /// Panasonic PTP wedges under a sustained stream of preview requests, so we pause
+    /// live view when the UI enters Preview mode where it's not needed.
+    SetLiveActive(bool),
 }
 
 #[derive(Clone, Debug)]
@@ -51,6 +55,10 @@ impl Session {
 
 struct Worker {
     backend: Option<Box<dyn CameraBackend>>,
+    /// True while the UI wants a live feed. Set false when the app enters Preview mode
+    /// so the camera worker stops issuing PTP preview requests (Panasonic PTP wedges
+    /// under sustained preview traffic; give the camera a rest while browsing frames).
+    want_live: bool,
     events: Sender<Event>,
     ctx: egui::Context,
     camera: Option<(DeviceInfo, Box<dyn Camera>)>,
@@ -61,7 +69,7 @@ struct Worker {
 
 impl Worker {
     fn new(backend: Option<Box<dyn CameraBackend>>, events: Sender<Event>, ctx: egui::Context) -> Self {
-        Self { backend, events, ctx, camera: None, live: None, last_poll: None, last_status: None }
+        Self { backend, want_live: true, events, ctx, camera: None, live: None, last_poll: None, last_status: None }
     }
 
     fn send(&self, ev: Event) {
@@ -110,6 +118,7 @@ impl Worker {
 
             match cmd {
                 Some(Cmd::Capture(project)) => self.capture(&project),
+                Some(Cmd::SetLiveActive(active)) => self.set_live_active(active),
                 None => {}
             }
 
@@ -168,6 +177,9 @@ impl Worker {
     }
 
     fn start_live(&mut self) {
+        if !self.want_live {
+            return;
+        }
         let Some((_, cam)) = &mut self.camera else { return };
         if !cam.capabilities().live_view || self.live.is_some() {
             return;
@@ -177,6 +189,21 @@ impl Worker {
             Err(e) => {
                 let msg = explain(&e);
                 self.lost(&msg);
+            }
+        }
+    }
+
+    fn set_live_active(&mut self, active: bool) {
+        if self.want_live == active {
+            return;
+        }
+        self.want_live = active;
+        if active {
+            self.start_live();
+        } else {
+            self.live = None;
+            if let Some((_, cam)) = &mut self.camera {
+                let _ = cam.stop_live_view();
             }
         }
     }

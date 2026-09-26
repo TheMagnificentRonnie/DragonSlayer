@@ -68,6 +68,9 @@ pub struct DragonSlayerApp {
     status: Status,
     live: Option<TextureHandle>,
     mode: Mode,
+    /// Last live-active state we sent to the camera worker. `None` means we haven't
+    /// sent anything yet; we send on the first frame to establish state.
+    want_live_cached: Option<bool>,
     /// Wall-clock time of the last playback frame advance; also used as a repaint anchor.
     playback_tick: Instant,
     capturing: bool,
@@ -141,6 +144,7 @@ impl DragonSlayerApp {
             status: Status::Searching,
             live: None,
             mode: Mode::AddFrames,
+            want_live_cached: None,
             playback_tick: Instant::now(),
             capturing: false,
             onion_on: true,
@@ -1640,6 +1644,14 @@ impl eframe::App for DragonSlayerApp {
         self.images.begin_frame(&ctx);
         self.handle_events(&ctx);
         self.handle_keys();
+        // Panasonic PTP wedges under a continuous stream of preview requests.
+        // Tell the camera worker to keep live view running only while we're in
+        // Add Frames mode; pause it when we're browsing captured frames.
+        let want_live = self.mode.is_add_frames();
+        if self.want_live_cached != Some(want_live) {
+            let _ = self.session.cmd.send(crate::session::Cmd::SetLiveActive(want_live));
+            self.want_live_cached = Some(want_live);
+        }
 
         egui::Panel::top("top").show(ui, |ui| {
             ui.add_space(4.0);
