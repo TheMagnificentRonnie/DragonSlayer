@@ -4,8 +4,8 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use eframe::egui::{
-    self, Align, Align2, Color32, FontId, Key, Layout, Rect, RichText, Sense, Stroke, TextureHandle,
-    TextureOptions, Vec2,
+    self, Align, Align2, Color32, FontId, Key, Layout, Margin, Rect, RichText, Sense, Stroke,
+    TextureHandle, TextureOptions, Vec2,
 };
 use dragonslayer_core::compile::{self, Format, Framing, Resolution, Settings};
 use dragonslayer_core::{Frame, Project};
@@ -493,6 +493,282 @@ impl DragonSlayerApp {
     }
 
     // ---- ui -------------------------------------------------------------
+
+    /// Classic app menu bar: File / Edit / View / Scene / Compile / Help.
+    fn menu_bar(&mut self, ui: &mut egui::Ui) {
+        use egui_phosphor::regular as ph;
+        egui::MenuBar::new().ui(ui, |ui| {
+            ui.menu_button(format!("{}  File", ph::FILE), |ui| {
+                if ui.button(format!("{}  New project…", ph::FILE_PLUS)).clicked() {
+                    self.new_project_dialog();
+                    ui.close();
+                }
+                if ui.button(format!("{}  Open project…", ph::FOLDER_OPEN)).clicked() {
+                    if let Some(dir) = rfd::FileDialog::new()
+                        .set_title("Open a DragonSlayer project folder")
+                        .pick_folder()
+                    {
+                        self.open_project(&dir);
+                    }
+                    ui.close();
+                }
+                if let Some(p) = &self.project {
+                    ui.separator();
+                    if ui.button(format!("{}  Reveal project folder", ph::FOLDER_OPEN)).clicked() {
+                        reveal(&p.root);
+                        ui.close();
+                    }
+                }
+                ui.separator();
+                if ui.button(format!("{}  Quit", ph::SIGN_OUT)).clicked() {
+                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+                }
+            });
+            ui.menu_button(format!("{}  View", ph::EYE), |ui| {
+                if ui
+                    .selectable_label(self.mode.is_add_frames(), format!("{}  Add Frames", ph::VIDEO_CAMERA))
+                    .clicked()
+                {
+                    self.mode = Mode::AddFrames;
+                    ui.close();
+                }
+                let can_preview = !self.frames.is_empty();
+                let preview_selected = !self.mode.is_add_frames();
+                let preview_label = format!("{}  Preview", ph::FILM_STRIP);
+                let clicked = ui
+                    .add_enabled_ui(can_preview, |ui| ui.selectable_label(preview_selected, preview_label))
+                    .inner
+                    .clicked();
+                if clicked {
+                    self.jump_to_end();
+                    ui.close();
+                }
+                ui.separator();
+                ui.checkbox(&mut self.onion_on, format!("{}  Onion skin (O)", ph::STACK));
+                ui.checkbox(&mut self.onion_edges, format!("{}  Outlines only", ph::EYE));
+            });
+            ui.menu_button(format!("{}  Scene", ph::FILM_STRIP), |ui| {
+                let can = self.project.is_some();
+                if ui.add_enabled(can, egui::Button::new(format!("{}  Add scene", ph::PLUS))).clicked() {
+                    let n = self.scenes.len() + 1;
+                    let after = self.active_row().map(|r| r.id.clone());
+                    self.edit(|p| p.add_scene(&format!("Scene {n}"), after.as_deref()).map(|_| ()));
+                    ui.close();
+                }
+                if ui.add_enabled(self.active_row().is_some(), egui::Button::new(format!("{}  Rename active scene", ph::PENCIL_SIMPLE))).clicked() {
+                    if let Some(row) = self.active_row() {
+                        self.renaming = Some((row.id.clone(), row.name.clone()));
+                    }
+                    ui.close();
+                }
+                if ui
+                    .add_enabled(
+                        self.active_row().is_some_and(|r| r.count > 0),
+                        egui::Button::new(format!("{}  Delete last frame", ph::TRASH)),
+                    )
+                    .clicked()
+                {
+                    self.delete_last();
+                    ui.close();
+                }
+            });
+            ui.menu_button(format!("{}  Compile", ph::EXPORT), |ui| {
+                if ui
+                    .add_enabled(self.project.is_some(), egui::Button::new(format!("{}  Compile…", ph::EXPORT)))
+                    .clicked()
+                {
+                    self.compile.open = true;
+                    self.compile.result = None;
+                    ui.close();
+                }
+            });
+            ui.menu_button(format!("{}  Help", ph::QUESTION), |ui| {
+                if ui.button(format!("{}  In-app help (H)", ph::QUESTION)).clicked() {
+                    self.help_open = true;
+                    ui.close();
+                }
+            });
+
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                ui.label(
+                    RichText::new(concat!("v", env!("CARGO_PKG_VERSION")))
+                        .small()
+                        .color(crate::theme::palette::TEXT_DIM),
+                );
+                ui.label(RichText::new("DragonSlayer").strong().color(crate::theme::palette::ACCENT));
+            });
+        });
+    }
+
+    /// Second row: project breadcrumb + camera status + fps picker + mode toggle.
+    fn status_bar(&mut self, ui: &mut egui::Ui) {
+        use egui_phosphor::regular as ph;
+        ui.horizontal(|ui| {
+            if let Some(p) = &self.project {
+                ui.label(RichText::new(format!("{}  {}", ph::FOLDER_OPEN, p.name())).strong());
+                ui.separator();
+                let mut fps = p.file.fps;
+                egui::ComboBox::from_id_salt("project fps")
+                    .selected_text(format!("{fps} fps"))
+                    .show_ui(ui, |ui| {
+                        for choice in [6, 8, 10, 12, 15, 18, 24, 25, 30] {
+                            ui.selectable_value(&mut fps, choice, format!("{choice} fps"));
+                        }
+                    });
+                if fps != p.file.fps {
+                    self.edit(|p| {
+                        p.file.fps = fps;
+                        p.save()
+                    });
+                }
+                ui.separator();
+                // Mode chip — segmented, icon-driven.
+                let has_frames = !self.frames.is_empty();
+                let in_add = self.mode.is_add_frames();
+                let add_txt = format!("{}  Add Frames", ph::VIDEO_CAMERA);
+                if ui.selectable_label(in_add, add_txt).clicked() {
+                    self.mode = Mode::AddFrames;
+                }
+                let prev_txt = format!("{}  Preview", ph::FILM_STRIP);
+                let clicked = ui
+                    .add_enabled_ui(has_frames, |ui| ui.selectable_label(!in_add, prev_txt))
+                    .inner
+                    .clicked();
+                if clicked {
+                    self.jump_to_end();
+                }
+            }
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                if ui.button(format!("{}  Help", ph::QUESTION)).on_hover_text("H").clicked() {
+                    self.help_open = true;
+                }
+                ui.separator();
+                self.camera_status(ui);
+            });
+        });
+    }
+
+    /// Left panel: scene list.
+    fn nav_panel(&mut self, ui: &mut egui::Ui) {
+        use egui_phosphor::regular as ph;
+        ui.add_space(6.0);
+        ui.horizontal(|ui| {
+            ui.label(RichText::new(format!("{}  Scenes", ph::FILM_STRIP)).heading());
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                if ui.button(ph::PLUS).on_hover_text("Add scene").clicked() {
+                    let n = self.scenes.len() + 1;
+                    let after = self.active_row().map(|r| r.id.clone());
+                    self.edit(|p| p.add_scene(&format!("Scene {n}"), after.as_deref()).map(|_| ()));
+                }
+            });
+        });
+        ui.separator();
+        self.scene_list(ui);
+    }
+
+    /// Right panel: camera status, capture / delete, onion controls, compile.
+    fn settings_panel(&mut self, ui: &mut egui::Ui) {
+        use egui_phosphor::regular as ph;
+        ui.add_space(6.0);
+        ui.label(RichText::new(format!("{}  Camera", ph::CAMERA)).heading());
+        ui.separator();
+        egui::Frame::new().inner_margin(Margin::same(4)).show(ui, |ui| self.camera_status(ui));
+        ui.add_space(4.0);
+        let can_capture = self.camera_ready() && !self.capturing && self.active_row().is_some();
+        let label = if self.capturing { format!("{}  Capturing…", ph::RECORD) } else { format!("{}  Capture", ph::CAMERA) };
+        let capture = egui::Button::new(RichText::new(label).size(16.0).strong())
+            .fill(crate::theme::palette::ACCENT_DEEP)
+            .min_size(Vec2::new(ui.available_width(), 44.0));
+        if ui.add_enabled(can_capture, capture).on_hover_text("Space").clicked() {
+            self.capture();
+        }
+        let has_frames = self.active_row().is_some_and(|r| r.count > 0);
+        if ui
+            .add_enabled(
+                has_frames,
+                egui::Button::new(format!("{}  Delete last frame", ph::TRASH))
+                    .min_size(Vec2::new(ui.available_width(), 32.0)),
+            )
+            .on_hover_text("Backspace — moves the frame to the scene's trash")
+            .clicked()
+        {
+            self.delete_last();
+        }
+
+        ui.add_space(12.0);
+        ui.label(RichText::new(format!("{}  Onion skin", ph::STACK)).heading());
+        ui.separator();
+        ui.checkbox(&mut self.onion_on, "Show onion skin (O)");
+        ui.add_enabled_ui(self.onion_on, |ui| {
+            ui.add(egui::Slider::new(&mut self.onion_count, 1..=5).text("frames"));
+            ui.add(egui::Slider::new(&mut self.onion_opacity, 0.05..=0.9).text("opacity"));
+            ui.checkbox(&mut self.onion_edges, "Outlines only (crisper over live view)");
+        });
+
+        ui.add_space(12.0);
+        ui.label(RichText::new(format!("{}  Export", ph::EXPORT)).heading());
+        ui.separator();
+        if ui
+            .add(egui::Button::new(format!("{}  Compile video…", ph::EXPORT))
+                .min_size(Vec2::new(ui.available_width(), 36.0)))
+            .clicked()
+        {
+            self.compile.open = true;
+            self.compile.result = None;
+        }
+
+        // Message area (bottom of the panel so it doesn't shift other controls).
+        if let Some((msg, is_err, at)) = &self.message
+            && (at.elapsed() < Duration::from_secs(8) || *is_err)
+        {
+            ui.add_space(12.0);
+            ui.separator();
+            let color = if *is_err { crate::theme::palette::ERROR } else { crate::theme::palette::TEXT_MUTED };
+            ui.label(RichText::new(msg).color(color).small());
+        }
+    }
+
+    /// Bottom panel: transport + timeline strip (visible in Preview; in Add Frames it just shows a hint).
+    fn timeline_panel(&mut self, ui: &mut egui::Ui) {
+        use egui_phosphor::regular as ph;
+        ui.add_space(4.0);
+        ui.horizontal(|ui| {
+            let has_frames = !self.frames.is_empty();
+            let playing = self.mode.is_playing();
+            ui.add_enabled_ui(has_frames, |ui| {
+                if ui.button(ph::SKIP_BACK).on_hover_text("Home — first frame").clicked() {
+                    self.jump_to(Some(0));
+                }
+                if ui.button(ph::CARET_LEFT).on_hover_text("← previous frame (Shift ×10)").clicked() {
+                    self.step(-1);
+                }
+                let play_icon = if playing { ph::PAUSE } else { ph::PLAY };
+                let play_btn = egui::Button::new(RichText::new(play_icon).size(18.0).strong())
+                    .fill(crate::theme::palette::ACCENT_DEEP)
+                    .min_size(Vec2::new(52.0, 32.0));
+                if ui.add(play_btn).on_hover_text("P — play/pause at scene fps").clicked() {
+                    self.toggle_play();
+                }
+                if ui.button(ph::CARET_RIGHT).on_hover_text("→ next frame (Shift ×10)").clicked() {
+                    self.step(1);
+                }
+                if ui.button(ph::SKIP_FORWARD).on_hover_text("End — last frame").clicked() {
+                    self.jump_to_end();
+                }
+            });
+            if !self.frames.is_empty() {
+                let n = self.frames.len();
+                let idx = self.mode.preview_index().unwrap_or(n - 1);
+                ui.separator();
+                ui.label(
+                    RichText::new(format!("Frame {} / {}", idx + 1, n))
+                        .monospace()
+                        .color(crate::theme::palette::TEXT_MUTED),
+                );
+            }
+        });
+        self.timeline(ui);
+    }
 
     fn top_bar(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
@@ -1653,24 +1929,34 @@ impl eframe::App for DragonSlayerApp {
             self.want_live_cached = Some(want_live);
         }
 
-        egui::Panel::top("top").show(ui, |ui| {
-            ui.add_space(4.0);
-            self.top_bar(ui);
-            ui.add_space(4.0);
+        egui::Panel::top("menubar").show(ui, |ui| self.menu_bar(ui));
+        egui::Panel::top("statusbar").show(ui, |ui| {
+            ui.add_space(2.0);
+            self.status_bar(ui);
+            ui.add_space(2.0);
         });
 
         if self.project.is_none() {
             egui::CentralPanel::default().show(ui, |ui| self.welcome(ui));
-            // Still let modals render on the welcome screen (Help is the important one).
             self.help_window(&ctx);
             return;
         }
 
-        egui::Panel::left("scenes").resizable(true).default_size(240.0).min_size(180.0).show(ui, |ui| {
-            self.scene_list(ui);
-        });
-        egui::Panel::bottom("controls").show(ui, |ui| self.controls(ui));
-        egui::Panel::bottom("timeline").show(ui, |ui| self.timeline(ui));
+        egui::Panel::left("nav")
+            .resizable(true)
+            .default_size(240.0)
+            .min_size(200.0)
+            .show(ui, |ui| self.nav_panel(ui));
+        egui::Panel::right("settings")
+            .resizable(true)
+            .default_size(300.0)
+            .min_size(260.0)
+            .show(ui, |ui| self.settings_panel(ui));
+        egui::Panel::bottom("timeline")
+            .resizable(true)
+            .default_size(140.0)
+            .min_size(90.0)
+            .show(ui, |ui| self.timeline_panel(ui));
         egui::CentralPanel::default().frame(egui::Frame::NONE).show(ui, |ui| self.viewer(ui));
 
         self.compile_window(&ctx);

@@ -1,6 +1,7 @@
 mod app;
 mod images;
 mod session;
+mod theme;
 
 use std::path::PathBuf;
 
@@ -26,9 +27,16 @@ fn main() -> eframe::Result {
         renderer: eframe::Renderer::Wgpu,
         viewport: eframe::egui::ViewportBuilder::default()
             .with_title("DragonSlayer")
-            .with_inner_size([1280.0, 800.0])
-            .with_min_inner_size([820.0, 520.0]),
+            .with_inner_size([1400.0, 900.0])
+            .with_min_inner_size([980.0, 620.0]),
         ..Default::default()
     };
-    eframe::run_native("DragonSlayer", options, Box::new(move |cc| Ok(Box::new(app::DragonSlayerApp::new(cc, backend, project)))))
+    eframe::run_native(
+        "DragonSlayer",
+        options,
+        Box::new(move |cc| {
+            theme::install(&cc.egui_ctx);
+            Ok(Box::new(app::DragonSlayerApp::new(cc, backend, project)))
+        }),
+    )
 }
