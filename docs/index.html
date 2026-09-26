@@ -1,0 +1,453 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DragonSlayer — free stop-motion capture for real cameras</title>
+<meta name="description" content="Free, open-source stop-motion capture and compile for the DSLR or mirrorless camera you already own. Live view, onion skinning, RAW+JPEG, H.264/ProRes export. Windows & macOS.">
+<meta property="og:title" content="DragonSlayer">
+<meta property="og:description" content="Free stop-motion capture for the camera you already own. Live view, onion skinning, MP4/ProRes export.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://themagnificentronnie.github.io/DragonSlayer/">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23162026'/%3E%3Cpath d='M8 10h16v4H16v8H8z' fill='%2348BECD'/%3E%3C/svg%3E">
+<style>
+  :root {
+    --bg-0: #0e0f12;
+    --bg-1: #16191d;
+    --bg-2: #1c2026;
+    --bg-3: #232830;
+    --bg-4: #2d333c;
+    --text: #e6e8ec;
+    --muted: #969ba5;
+    --dim: #666b76;
+    --accent: #48becd;
+    --accent-deep: #248498;
+    --accent-soft: rgba(72,190,205,0.14);
+    --warn: #e6b446;
+    --border: #303640;
+    --border-soft: #242830;
+    --radius: 10px;
+    --shadow: 0 20px 40px -20px rgba(0,0,0,.55);
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg-0);
+    color: var(--text);
+    font-family: var(--font);
+    font-size: 16px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code { font-family: var(--mono); background: var(--bg-3); padding: 0.1em 0.4em; border-radius: 4px; font-size: 0.92em; color: var(--text); }
+  pre { background: var(--bg-2); border: 1px solid var(--border-soft); border-radius: var(--radius); padding: 1rem 1.2rem; overflow-x: auto; font-family: var(--mono); font-size: 0.9rem; line-height: 1.5; color: var(--text); }
+  pre code { background: none; padding: 0; }
+  h1, h2, h3 { font-weight: 700; letter-spacing: -0.01em; }
+  h1 { font-size: clamp(2.2rem, 6vw, 3.6rem); line-height: 1.05; margin: 0 0 1rem; }
+  h2 { font-size: clamp(1.6rem, 3vw, 2.1rem); margin: 0 0 1rem; }
+  h3 { font-size: 1.15rem; margin: 0 0 0.5rem; }
+  .container { max-width: 1100px; margin: 0 auto; padding: 0 1.5rem; }
+  .thin { max-width: 780px; margin: 0 auto; padding: 0 1.5rem; }
+
+  /* Nav */
+  nav {
+    position: sticky; top: 0; z-index: 10;
+    background: rgba(14,15,18,0.82);
+    backdrop-filter: saturate(140%) blur(10px);
+    -webkit-backdrop-filter: saturate(140%) blur(10px);
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .nav-inner { display: flex; align-items: center; justify-content: space-between; padding: 0.8rem 1.5rem; max-width: 1100px; margin: 0 auto; }
+  .brand { display: inline-flex; align-items: center; gap: 0.6rem; font-weight: 700; letter-spacing: -0.01em; }
+  .brand-mark { width: 22px; height: 22px; border-radius: 5px; background: linear-gradient(140deg, var(--accent) 0%, var(--accent-deep) 100%); display: inline-flex; align-items: center; justify-content: center; }
+  .brand-mark svg { width: 14px; height: 14px; color: #071820; }
+  nav a.link { color: var(--muted); margin-left: 1.2rem; font-size: 0.92rem; }
+  nav a.link:hover { color: var(--text); text-decoration: none; }
+  nav a.link.cta {
+    background: var(--accent);
+    color: #071820;
+    padding: 0.4rem 0.9rem;
+    border-radius: 6px;
+    font-weight: 600;
+  }
+  nav a.link.cta:hover { background: #62d0dd; }
+
+  /* Hero */
+  .hero { padding: 6rem 0 5rem; }
+  .hero .badges { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1.25rem; }
+  .badge {
+    display: inline-flex; align-items: center; gap: 0.4rem;
+    background: var(--bg-2);
+    border: 1px solid var(--border-soft);
+    color: var(--muted);
+    padding: 0.28rem 0.7rem;
+    border-radius: 999px;
+    font-size: 0.82rem;
+  }
+  .badge.accent { background: var(--accent-soft); border-color: var(--accent-deep); color: var(--accent); }
+  .badge .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  .hero p.lede { color: var(--muted); font-size: clamp(1.1rem, 1.6vw, 1.3rem); max-width: 680px; }
+  .hero .cta-row { display: flex; gap: 0.8rem; flex-wrap: wrap; margin-top: 2rem; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 0.5rem;
+    padding: 0.85rem 1.2rem;
+    border-radius: 8px;
+    font-weight: 600;
+    border: 1px solid transparent;
+    text-decoration: none;
+    transition: transform .08s ease, background .15s ease, border-color .15s ease;
+  }
+  .btn:hover { text-decoration: none; transform: translateY(-1px); }
+  .btn.primary { background: var(--accent); color: #071820; }
+  .btn.primary:hover { background: #62d0dd; }
+  .btn.ghost { background: transparent; color: var(--text); border-color: var(--border); }
+  .btn.ghost:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* Sections */
+  section { padding: 4rem 0; border-top: 1px solid var(--border-soft); }
+  section.plain { border-top: none; }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+    gap: 1rem;
+  }
+  .card {
+    background: var(--bg-2);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius);
+    padding: 1.25rem 1.35rem;
+  }
+  .card h3 { color: var(--text); }
+  .card p { color: var(--muted); font-size: 0.95rem; margin: 0.4rem 0 0; }
+  .card .icon {
+    width: 32px; height: 32px; border-radius: 8px;
+    background: var(--accent-soft);
+    color: var(--accent);
+    display: inline-flex; align-items: center; justify-content: center;
+    margin-bottom: 0.75rem;
+  }
+  .icon svg { width: 18px; height: 18px; }
+
+  /* Callouts */
+  .callout {
+    background: linear-gradient(180deg, rgba(230, 180, 70, 0.06), rgba(230, 180, 70, 0.02));
+    border: 1px solid rgba(230, 180, 70, 0.35);
+    border-radius: var(--radius);
+    padding: 1.25rem 1.4rem;
+  }
+  .callout h2 { color: var(--warn); }
+
+  /* Editor table */
+  .editors { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 0.8rem; margin-top: 1.25rem; }
+  .editor {
+    background: var(--bg-2);
+    border: 1px solid var(--border-soft);
+    border-radius: 8px;
+    padding: 0.9rem 1.1rem;
+  }
+  .editor h4 { margin: 0 0 0.15rem; font-size: 1rem; color: var(--text); }
+  .editor .platforms { color: var(--dim); font-size: 0.8rem; letter-spacing: 0.02em; text-transform: uppercase; }
+  .editor p { margin: 0.5rem 0 0; color: var(--muted); font-size: 0.9rem; }
+
+  /* Steps */
+  ol.steps { counter-reset: step; list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.75rem; }
+  ol.steps li {
+    counter-increment: step;
+    background: var(--bg-2);
+    border: 1px solid var(--border-soft);
+    border-left: 3px solid var(--accent);
+    border-radius: 8px;
+    padding: 0.9rem 1.1rem 0.9rem 3.3rem;
+    position: relative;
+    color: var(--muted);
+  }
+  ol.steps li::before {
+    content: counter(step);
+    position: absolute; left: 1rem; top: 50%; transform: translateY(-50%);
+    width: 1.6rem; height: 1.6rem;
+    background: var(--accent-soft);
+    color: var(--accent);
+    border-radius: 50%;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 0.85rem; font-weight: 700;
+  }
+  ol.steps li strong { color: var(--text); }
+
+  /* Keys */
+  kbd {
+    display: inline-block;
+    background: var(--bg-3);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 0.1rem 0.5rem;
+    border-radius: 4px;
+    font-family: var(--mono);
+    font-size: 0.85em;
+    min-width: 1.5em;
+    text-align: center;
+  }
+
+  /* Screenshot placeholder */
+  .shot {
+    margin-top: 3rem;
+    background: linear-gradient(180deg, var(--bg-3), var(--bg-2));
+    border: 1px solid var(--border-soft);
+    border-radius: 14px;
+    padding: 1rem;
+    box-shadow: var(--shadow);
+  }
+  .shot .windowbar {
+    display: flex; align-items: center; gap: 0.35rem;
+    padding: 0.15rem 0.35rem 0.6rem;
+  }
+  .shot .windowbar span { width: 9px; height: 9px; border-radius: 50%; background: var(--bg-4); }
+  .shot .placeholder {
+    aspect-ratio: 16 / 9;
+    background:
+      radial-gradient(circle at 30% 40%, rgba(72,190,205,0.10), transparent 60%),
+      linear-gradient(160deg, var(--bg-1) 0%, var(--bg-2) 100%);
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--dim);
+    font-size: 0.9rem;
+  }
+
+  /* Footer */
+  footer {
+    padding: 3rem 0 5rem;
+    border-top: 1px solid var(--border-soft);
+    color: var(--dim);
+    font-size: 0.9rem;
+    text-align: center;
+  }
+  footer a { color: var(--muted); }
+
+  /* Table */
+  table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+  th, td { padding: 0.6rem 0.8rem; text-align: left; border-bottom: 1px solid var(--border-soft); font-size: 0.95rem; }
+  th { color: var(--muted); font-weight: 600; }
+
+  /* Utility */
+  .muted { color: var(--muted); }
+  .lead { font-size: 1.05rem; color: var(--muted); max-width: 720px; }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-inner">
+    <a class="brand" href="#top">
+      <span class="brand-mark">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+      </span>
+      DragonSlayer
+    </a>
+    <div>
+      <a class="link" href="#features">Features</a>
+      <a class="link" href="#cameras">Cameras</a>
+      <a class="link" href="#not-an-editor">Not an editor</a>
+      <a class="link" href="#get-started">Get started</a>
+      <a class="link cta" href="https://github.com/TheMagnificentRonnie/DragonSlayer">GitHub</a>
+    </div>
+  </div>
+</nav>
+
+<div id="top" class="container hero">
+  <div class="badges">
+    <span class="badge accent"><span class="dot"></span>v0.1.0-beta</span>
+    <span class="badge">MIT licensed</span>
+    <span class="badge">Windows &amp; macOS</span>
+    <span class="badge">Free &amp; open source</span>
+  </div>
+  <h1>Stop-motion capture for the camera <em>you already own</em>.</h1>
+  <p class="lede">DragonSlayer tethers your DSLR or mirrorless camera over USB, lets you shoot scene by scene with live view and onion skinning, and compiles the frames into a video. Nothing else. Free. Open source. Built for classrooms and stubborn hobbyists.</p>
+  <div class="cta-row">
+    <a class="btn primary" href="https://github.com/TheMagnificentRonnie/DragonSlayer/releases/latest">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      Download 0.1.0-beta
+    </a>
+    <a class="btn ghost" href="https://github.com/TheMagnificentRonnie/DragonSlayer">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 .3a12 12 0 0 0-3.8 23.4c.6.1.83-.26.83-.58v-2.02c-3.34.72-4.04-1.61-4.04-1.61-.55-1.4-1.34-1.77-1.34-1.77-1.09-.75.08-.73.08-.73 1.2.09 1.83 1.24 1.83 1.24 1.07 1.83 2.81 1.3 3.5 1 .11-.78.42-1.31.76-1.61-2.67-.31-5.47-1.34-5.47-5.94 0-1.31.47-2.38 1.24-3.22-.13-.31-.54-1.54.12-3.2 0 0 1.01-.32 3.3 1.23a11.4 11.4 0 0 1 6 0c2.29-1.55 3.3-1.23 3.3-1.23.66 1.66.25 2.89.13 3.2.77.84 1.24 1.91 1.24 3.22 0 4.61-2.81 5.63-5.49 5.93.43.37.81 1.1.81 2.22v3.29c0 .32.21.7.83.58A12 12 0 0 0 12 .3z"/></svg>
+      View source
+    </a>
+    <a class="btn ghost" href="https://github.com/TheMagnificentRonnie/DragonSlayer/blob/main/MAC-DEV-SETUP.md">macOS setup guide</a>
+  </div>
+
+  <div class="shot">
+    <div class="windowbar"><span></span><span></span><span></span></div>
+    <div class="placeholder">Screenshot coming with the next tagged release</div>
+  </div>
+</div>
+
+<section id="features" class="container">
+  <h2>What it does</h2>
+  <p class="lead">One window. Every feature is here to help you shoot a scene, not to admire itself.</p>
+  <div class="grid" style="margin-top:1.5rem">
+    <div class="card">
+      <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg></div>
+      <h3>Live view over USB</h3>
+      <p>See exactly what the camera sees, in the app, at the camera's own frame rate. Every camera libgphoto2 supports.</p>
+    </div>
+    <div class="card">
+      <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 22 8.5 22 15.5 12 22 2 15.5 2 8.5 12 2"/><line x1="12" y1="22" x2="12" y2="15.5"/><polyline points="22 8.5 12 15.5 2 8.5"/></svg></div>
+      <h3>Onion skinning that helps</h3>
+      <p>Full-frame ghost or Sobel edge outlines of the previous frame. Adjustable opacity and count. Cyan tint so it doesn't fight the live view.</p>
+    </div>
+    <div class="card">
+      <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M17 21V5a2 2 0 0 0-2-2H9a2 2 0 0 0-2 2v16"/></svg></div>
+      <h3>Two modes, no confusion</h3>
+      <p>Add Frames for shooting, Preview for reviewing. Arrows / play / timeline in Preview; Space captures in Add Frames. That's it.</p>
+    </div>
+    <div class="card">
+      <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></div>
+      <h3>Scenes, ordered</h3>
+      <p>Drag to reorder, rename inline, per-scene frame rate, deleted scenes go to trash, never destroyed. IDs like <code>sc010</code> so inserting between two is <code>sc015</code>.</p>
+    </div>
+    <div class="card">
+      <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15a4 4 0 0 0 4 4h8a4 4 0 0 0 0-8h-1"/><polyline points="9 15 4 10 9 5"/></svg></div>
+      <h3>Never lose a frame</h3>
+      <p>Every capture is a filesystem transaction. Files flushed to disk, journal appended atomically. Crash mid-session? Recovered on next launch.</p>
+    </div>
+    <div class="card">
+      <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></div>
+      <h3>Compile to MP4 or ProRes</h3>
+      <p>H.264 for anywhere-playback, ProRes 422 for editing. Source resolution or 4K/1080p, crop or fit. Uses ffmpeg under the hood.</p>
+    </div>
+    <div class="card">
+      <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/></svg></div>
+      <h3>Dockable panels</h3>
+      <p>Scenes, Viewer, Timeline, Camera, Onion Skin, Export — drag any tab header to rearrange. Set the app up the way your brain works.</p>
+    </div>
+    <div class="card">
+      <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.09a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.09a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></div>
+      <h3>Windows driver setup included</h3>
+      <p>Bundles Zadig for the one-time WinUSB driver swap. In-app "Set up USB driver" button opens it with a click.</p>
+    </div>
+    <div class="card">
+      <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a9 9 0 1 0 9 9"/><path d="M21 3v6h-6"/></svg></div>
+      <h3>Three themes</h3>
+      <p>Dark teal (default), dark amber, or light. Preferences → Theme. Swap on the fly.</p>
+    </div>
+  </div>
+</section>
+
+<section id="cameras" class="container">
+  <h2>Cameras that work</h2>
+  <p class="lead">DragonSlayer uses libgphoto2's PTP driver, which covers <b>hundreds of DSLR and mirrorless bodies</b> made in the last 15 years. That includes most Canon EOS, Nikon, Sony Alpha, Panasonic Lumix, Fujifilm and OM System / Olympus cameras.</p>
+  <p style="margin-top:0.8rem" class="muted">Reference camera: Panasonic Lumix GH5. Second test camera: Canon EOS 100D. Everything else <i>should</i> work — please open an issue with your make/model so we can add it to the compatibility list.</p>
+  <p style="margin-top:1rem"><a href="http://www.gphoto.org/proj/libgphoto2/support.php">Full libgphoto2 support list &rarr;</a></p>
+</section>
+
+<section id="not-an-editor" class="container">
+  <div class="callout">
+    <h2>DragonSlayer is <em>not</em> a video editor</h2>
+    <p style="color:var(--text);margin:0 0 0.5rem">It captures frames and compiles them into a video. That's the whole job. To cut clips together, add music, add titles, grade colour or export for social — use a video editor. All of these are free.</p>
+    <p class="muted" style="margin:0">Typical workflow: shoot in DragonSlayer → compile to MP4 → import into your editor → cut, colour, title, export.</p>
+
+    <div class="editors">
+      <div class="editor"><h4>DaVinci Resolve</h4><div class="platforms">Windows · macOS · Linux</div><p>Free version is genuinely professional. Colour grading is best-in-class. The one to learn if you only learn one.</p><a href="https://www.blackmagicdesign.com/products/davinciresolve">blackmagicdesign.com</a></div>
+      <div class="editor"><h4>Kdenlive</h4><div class="platforms">Windows · macOS · Linux</div><p>Open source, KDE project. Multi-track timeline, proxy workflow, decent effects. Very student-friendly.</p><a href="https://kdenlive.org">kdenlive.org</a></div>
+      <div class="editor"><h4>Shotcut</h4><div class="platforms">Windows · macOS · Linux</div><p>Open source, straightforward interface, wide format support. Good "just cuts and titles" tool.</p><a href="https://shotcut.org">shotcut.org</a></div>
+      <div class="editor"><h4>OpenShot</h4><div class="platforms">Windows · macOS · Linux</div><p>Open source. Friendliest first-time editor of the bunch. Fewer features than Kdenlive but a shorter learning curve.</p><a href="https://www.openshot.org">openshot.org</a></div>
+      <div class="editor"><h4>Blender · VSE</h4><div class="platforms">Windows · macOS · Linux</div><p>Better known for 3D, but has a solid built-in non-linear editor. Useful if you're already using Blender.</p><a href="https://www.blender.org">blender.org</a></div>
+      <div class="editor"><h4>iMovie</h4><div class="platforms">macOS · iOS</div><p>Free with any Mac. Made for simple story cuts with music and titles.</p><a href="https://www.apple.com/imovie/">apple.com/imovie</a></div>
+      <div class="editor"><h4>Clipchamp</h4><div class="platforms">Windows</div><p>Free with Windows 11. Web-first, quick titles/transitions, good for social clips.</p><a href="https://www.microsoft.com/en-us/clipchamp">microsoft.com</a></div>
+      <div class="editor"><h4>CapCut</h4><div class="platforms">Windows · macOS · Web · mobile</div><p>Free. Popular for short-form. Some concerns around data privacy — check before schoolwork.</p><a href="https://www.capcut.com">capcut.com</a></div>
+      <div class="editor"><h4>HitFilm (free tier)</h4><div class="platforms">Windows · macOS</div><p>Free tier is real, VFX-oriented. Watermark on some presets in the free version.</p><a href="https://fxhome.com/product/hitfilm">fxhome.com</a></div>
+    </div>
+  </div>
+</section>
+
+<section id="get-started" class="container">
+  <h2>Get started</h2>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:1.5rem;margin-top:1.5rem">
+    <div>
+      <h3>Windows</h3>
+      <ol class="steps">
+        <li><strong>Grab the pre-built bundle</strong> from the <a href="https://github.com/TheMagnificentRonnie/DragonSlayer/releases">Releases page</a> and unzip it anywhere.</li>
+        <li><strong>Plug in your camera</strong> on USB, turn it on, set it to <b>PC</b> / <b>PC(Tether)</b> / <b>PTP</b> mode.</li>
+        <li><strong>Run</strong> <code>DragonSlayer.cmd</code>.</li>
+        <li><strong>If Windows is still using its own driver</strong>, click the "Set up USB driver…" button top-right — the bundled Zadig walks through a one-time WinUSB swap. Nothing on the camera changes.</li>
+        <li><strong>Click New project</strong>, <kbd>Space</kbd> to capture, <kbd>H</kbd> for the in-app help.</li>
+      </ol>
+    </div>
+    <div>
+      <h3>macOS</h3>
+      <ol class="steps">
+        <li><strong>Install Rust and libgphoto2</strong>. Full step-by-step in <a href="https://github.com/TheMagnificentRonnie/DragonSlayer/blob/main/MAC-DEV-SETUP.md">the macOS setup guide</a> — assumes no prior experience.</li>
+        <li><strong>Quit Photos and Image Capture</strong>, then <code>killall ptpcamerad</code>.</li>
+        <li><strong>Plug in your camera</strong> in PC / PTP mode.</li>
+        <li><strong>Build and run</strong>: <code>cargo run --release --features gphoto2 -p dragonslayer-app</code></li>
+        <li><strong>Click New project</strong>, <kbd>Space</kbd> to capture, <kbd>H</kbd> for the in-app help.</li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<section class="container">
+  <h2>Keyboard shortcuts</h2>
+  <table>
+    <thead><tr><th>Key</th><th>Action</th></tr></thead>
+    <tbody>
+      <tr><td><kbd>Space</kbd></td><td>Capture the next frame</td></tr>
+      <tr><td><kbd>Backspace</kbd></td><td>Move the last frame to the scene's trash</td></tr>
+      <tr><td><kbd>O</kbd></td><td>Toggle onion skin</td></tr>
+      <tr><td><kbd>Tab</kbd></td><td>Switch between Add Frames and Preview</td></tr>
+      <tr><td><kbd>&larr;</kbd> / <kbd>&rarr;</kbd></td><td>Previous / next frame (Preview)</td></tr>
+      <tr><td><kbd>Home</kbd> / <kbd>End</kbd></td><td>First / last frame</td></tr>
+      <tr><td><kbd>P</kbd></td><td>Play / pause at scene fps</td></tr>
+      <tr><td><kbd>H</kbd></td><td>Open in-app help</td></tr>
+      <tr><td><kbd>Esc</kbd></td><td>Close a modal / back to Add Frames</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section class="container">
+  <h2>Where it lives</h2>
+  <p class="lead">A DragonSlayer project is a plain folder. Copy it to a USB stick. Hand it in. Everything is text and JPEGs.</p>
+  <pre><code>MyFilm/
+  project.json                  # name, fps, scene order
+  scenes/
+    sc010/
+      scene.json
+      journal.ndjson            # capture history (frame order rebuilt from this)
+      frames/
+        000001.jpg
+        000001.CR2
+      incoming/                 # in-flight downloads; recovered after a crash
+      trash/                    # deleted frames (never destroyed)
+  trash/                        # deleted scenes
+  exports/                      # compiled videos</code></pre>
+</section>
+
+<section class="container">
+  <h2>What we won't build</h2>
+  <p class="lead">A short list of things DragonSlayer deliberately doesn't do, because the whole point is to stay small.</p>
+  <ul class="muted" style="margin-top:1rem;line-height:1.9;list-style:none;padding:0">
+    <li>✕ No AI features — no auto-onion, no in-betweening, no generative anything. Every frame is a person's choice. Hard line.</li>
+    <li>✕ No video editing / NLE — export to a real editor (see above).</li>
+    <li>✕ No vector animation, tweening or drawing tools — that's Toon Boom / TVPaint territory.</li>
+    <li>✕ No 3D rigging or puppeting — Blender / Cascadeur do that.</li>
+    <li>✕ No paid tiers, subscriptions, telemetry or accounts. Ever.</li>
+  </ul>
+</section>
+
+<footer>
+  <div class="container">
+    <p>
+      MIT licensed · Free and open source ·
+      <a href="https://github.com/TheMagnificentRonnie/DragonSlayer">Source on GitHub</a> ·
+      <a href="https://github.com/TheMagnificentRonnie/DragonSlayer/issues">Report an issue</a> ·
+      <a href="https://github.com/TheMagnificentRonnie/DragonSlayer/blob/main/CAMERAS.md">Camera reports</a>
+    </p>
+    <p style="margin-top:1rem;color:var(--dim)">Nothing here is professionally supported. There is no help desk. There is no SLA. Use it at your own risk — see the <a href="https://github.com/TheMagnificentRonnie/DragonSlayer/blob/main/LICENSE">licence</a>.</p>
+  </div>
+</footer>
+
+</body>
+</html>
