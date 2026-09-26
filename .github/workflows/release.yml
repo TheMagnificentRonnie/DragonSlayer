@@ -1,0 +1,114 @@
+name: Build & attach release assets
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to build and upload assets to (e.g. v0.2.1-beta)"
+        required: true
+
+jobs:
+  # ---------------------------------------------------------------- Windows
+  windows:
+    name: Windows x64 zip
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install MSYS2 + UCRT64 toolchain + libgphoto2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            mingw-w64-ucrt-x86_64-toolchain
+            mingw-w64-ucrt-x86_64-pkgconf
+            mingw-w64-ucrt-x86_64-clang
+            mingw-w64-ucrt-x86_64-libgphoto2
+
+      - name: Install Rust (stable + windows-gnu target)
+        shell: cmd
+        run: |
+          curl -sSf --output rustup-init.exe https://static.rust-lang.org/rustup/dist/x86_64-pc-windows-gnu/rustup-init.exe
+          rustup-init.exe -y --default-toolchain stable-x86_64-pc-windows-gnu --target x86_64-pc-windows-gnu
+          echo %USERPROFILE%\.cargo\bin>>%GITHUB_PATH%
+
+      - name: Set build env
+        run: |
+          echo "PATH=/ucrt64/bin:$PATH" >> $GITHUB_ENV
+          echo "PKG_CONFIG_PATH=/ucrt64/lib/pkgconfig" >> $GITHUB_ENV
+          echo "PKG_CONFIG_ALLOW_CROSS=1" >> $GITHUB_ENV
+          echo "LIBCLANG_PATH=/ucrt64/bin" >> $GITHUB_ENV
+
+      - name: Build (with gphoto2)
+        run: |
+          export PATH="/c/Users/runneradmin/.cargo/bin:$PATH"
+          cargo build --release --features gphoto2 \
+            -p dragonslayer-cli -p dragonslayer-app \
+            --target x86_64-pc-windows-gnu
+
+      - name: Grab Zadig
+        run: |
+          curl -L -o target/x86_64-pc-windows-gnu/release/zadig.exe \
+            https://github.com/pbatard/libwdi/releases/download/v1.5.1/zadig-2.9.exe
+
+      - name: Package
+        run: |
+          export PATH="/c/Users/runneradmin/.cargo/bin:$PATH"
+          bash scripts/package-windows.sh
+
+      - name: Upload asset to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${GITHUB_REF##refs/tags/}"
+          if [ -z "$TAG" ] || [ "$TAG" = "$GITHUB_REF" ]; then TAG="${{ github.event.inputs.tag }}"; fi
+          echo "Uploading to tag $TAG"
+          gh release upload "$TAG" target/dist/dragonslayer-*-windows-x64.zip --clobber
+
+  # ------------------------------------------------------------------ macOS
+  macos:
+    name: macOS ${{ matrix.arch }} zip
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: macos-14           # Apple Silicon
+          - arch: x86_64
+            runner: macos-13           # Intel
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install libgphoto2 + ffmpeg + pkg-config
+        run: |
+          brew install libgphoto2 ffmpeg pkg-config
+
+      - name: Install Rust
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+      - name: Build (with gphoto2)
+        run: |
+          export PKG_CONFIG_PATH="$(brew --prefix)/lib/pkgconfig"
+          cargo build --release --features gphoto2 \
+            -p dragonslayer-cli -p dragonslayer-app
+
+      - name: Bundle (relocatable .app-adjacent folder)
+        run: bash scripts/package-macos.sh
+
+      - name: Upload asset to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${GITHUB_REF##refs/tags/}"
+          if [ -z "$TAG" ] || [ "$TAG" = "$GITHUB_REF" ]; then TAG="${{ github.event.inputs.tag }}"; fi
+          echo "Uploading to tag $TAG"
+          gh release upload "$TAG" target/dist/dragonslayer-*-macos-*.zip --clobber
