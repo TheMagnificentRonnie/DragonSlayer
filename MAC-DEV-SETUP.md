@@ -1,364 +1,425 @@
-# macOS developer setup
+# DragonSlayer on macOS — setup for total beginners
 
-Zero-to-running-app on a fresh Mac. Copy each block into Terminal.
+Assumes: you have a Mac. That's it.
 
-Everything below is for **Intel or Apple Silicon** Macs (macOS 12 Monterey or newer). ARM (M1/M2/M3/M4) and x86_64 both work — Homebrew handles the difference.
+Not assumed: that you've ever opened Terminal, used a package manager, written code, typed a git command, or heard of Rust. Every step tells you exactly what to do, what will happen, how long it takes, and what to do if it goes wrong.
 
-## Contents
+Time budget: about **30–60 minutes** the first time (most of it waiting for downloads). Every step after this is a one-line command.
 
-- [1. Xcode Command Line Tools](#1-xcode-command-line-tools)
-- [2. Homebrew](#2-homebrew)
-- [3. System libraries (libgphoto2, ffmpeg, pkg-config)](#3-system-libraries)
-- [4. Rust](#4-rust)
-- [5. Git first-time setup](#5-git-first-time-setup)
-- [6. SSH key for GitHub](#6-ssh-key-for-github)
-- [7. Clone DragonSlayer](#7-clone-dragonslayer)
-- [8. Build](#8-build)
-- [9. Run](#9-run)
-- [10. Editor setup (optional)](#10-editor-setup-optional)
-- [11. Troubleshooting](#11-troubleshooting)
+## What you're going to do
+
+1. Open Terminal.
+2. Install Apple's developer command-line tools.
+3. Install Homebrew (a program-installer).
+4. Install four programs Homebrew provides.
+5. Install Rust (the programming language DragonSlayer is written in).
+6. Configure git so it knows who you are.
+7. Set up your Mac so it can talk to GitHub.
+8. Download DragonSlayer.
+9. Build DragonSlayer.
+10. Run DragonSlayer.
+
+Copy each grey command block and paste into Terminal. Press **Return** to run it. Wait for the `$` (or `%`) prompt to come back before pasting the next one.
 
 ---
 
-## 1. Xcode Command Line Tools
+## 1. Open Terminal
 
-Provides `clang`, `git`, `make` and the SDK headers Rust needs.
+Press **⌘ + Space** together. This opens Spotlight (a little search bar).
+
+Type: **Terminal**
+
+Press **Return**. A window with a mostly-empty grey/black background opens. That's Terminal. Keep it open — you'll live in it for the next hour.
+
+You'll see something like:
+
+```
+YourName@Your-Mac ~ %
+```
+
+The `%` (or `$` on older Macs) is the **prompt**. You type after it.
+
+**To paste**: **⌘ + V**. Right-click → Paste also works.
+
+**If you paste and see multiple lines run one after another**, that's fine — that's intended. Just wait for the prompt to come back before pasting more.
+
+## 2. Install the Xcode Command Line Tools
+
+What it is: a package Apple ships with the compiler (`clang`), the version control system (`git`), and the header files Rust needs to build. You don't have to use Xcode itself — just the command-line part.
+
+Size: about 3 GB. Time: 5–20 minutes depending on your internet.
+
+Paste this and press Return:
 
 ```sh
 xcode-select --install
 ```
 
-A dialog will pop up. Click **Install**, agree to the licence, and wait. It takes 5–15 minutes on a decent connection.
+**A dialog box appears** saying "The `xcode-select` command requires the command line developer tools. Would you like to install the tools now?" — click **Install**, then **Agree** to the licence.
 
-Verify:
+A progress bar appears. Go make tea. Do not close the dialog.
+
+When it's done, verify:
 
 ```sh
-xcode-select -p     # should print /Library/Developer/CommandLineTools
-clang --version     # should print an Apple clang version
-git --version       # ≥ 2.30 is fine
+xcode-select -p
 ```
 
-## 2. Homebrew
+Should print: `/Library/Developer/CommandLineTools`
 
-Most macOS dev tooling comes from [Homebrew](https://brew.sh). Install:
+```sh
+git --version
+```
+
+Should print a git version (e.g. `git version 2.39.3`).
+
+**If the dialog says "The software cannot be installed at this time"**: try again in 10 minutes — Apple's server is busy.
+
+**If you get "command not found"** after the install: quit Terminal (⌘Q), open it again.
+
+## 3. Install Homebrew
+
+What it is: a program-installer for Macs. Instead of hunting websites for downloads, you type `brew install <thing>` and it fetches, installs and updates it.
+
+Paste this whole block and press Return:
 
 ```sh
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 ```
 
-At the end the installer prints two `eval` lines to add `brew` to your `PATH`. Run them, then persist them in your shell config:
+**It will ask for your Mac login password.** Type it — you won't see any characters as you type, that's normal. Press Return.
 
-```sh
-# Apple Silicon
-echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> ~/.zprofile
-eval "$(/opt/homebrew/bin/brew shellenv)"
+**It shows a list of what it will install** and asks you to press Return to continue. Do that.
 
-# Intel Mac (only if the installer printed /usr/local instead of /opt/homebrew)
-echo 'eval "$(/usr/local/bin/brew shellenv)"' >> ~/.zprofile
-eval "$(/usr/local/bin/brew shellenv)"
+The install takes 3–10 minutes.
+
+**At the very end**, Homebrew prints two lines that start with `==> Next steps:` and something like:
+
 ```
+Run these two commands in your terminal to add Homebrew to your PATH:
+    (echo; echo 'eval "$(/opt/homebrew/bin/brew shellenv)"') >> /Users/you/.zprofile
+    eval "$(/opt/homebrew/bin/brew shellenv)"
+```
+
+**Copy those two exact commands from your Terminal** (they're personalised with your username) and paste them one by one. Press Return after each.
+
+**On an Intel Mac** the path will be `/usr/local/bin/brew` instead of `/opt/homebrew/bin/brew`. Whatever Homebrew's installer prints on YOUR machine is the right thing.
 
 Verify:
 
 ```sh
 brew --version
-brew doctor          # should say "Your system is ready to brew."
 ```
 
-## 3. System libraries
+Should print something like `Homebrew 4.x.x`.
 
-DragonSlayer needs:
+**If `brew` is "command not found"** after all that: quit Terminal (⌘Q), open again, retry.
 
-- **libgphoto2** — camera control (LGPL, dynamically linked)
-- **ffmpeg** — video compile (invoked as a subprocess)
-- **pkg-config** — how the Rust build finds libgphoto2
-- **git-lfs** — optional but useful for the repo if we later add large binaries
+## 4. Install the four things DragonSlayer needs
+
+One command. Homebrew downloads and installs them.
 
 ```sh
-brew install libgphoto2 ffmpeg pkg-config git-lfs
+brew install libgphoto2 ffmpeg pkg-config git
 ```
 
-Verify:
+Time: 5–15 minutes. Homebrew will chat a lot about what it's doing. Ignore the chatter unless it says "Error:" at the end.
+
+- **libgphoto2** is the camera library. It's what lets DragonSlayer talk to your DSLR over USB.
+- **ffmpeg** is the video builder. It turns your photos into a movie.
+- **pkg-config** is a helper that tells Rust where libgphoto2 lives on your Mac.
+- **git** — Apple's git is fine but Homebrew's is newer.
+
+Verify (all four should print a version, not an error):
 
 ```sh
-pkg-config --modversion libgphoto2   # e.g. 2.5.34
-ffmpeg -version | head -1            # should mention libx264
-gphoto2 --version | head -1          # optional CLI, useful for testing the camera outside DragonSlayer
+gphoto2 --version | head -1
+ffmpeg -version | head -1
+pkg-config --modversion libgphoto2
+git --version
 ```
 
-## 4. Rust
+## 5. Install Rust
 
-Install [rustup](https://rustup.rs) — the official Rust toolchain manager.
+Rust is the language DragonSlayer is written in. `rustup` is the tool that installs and updates it.
 
 ```sh
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```
 
-Accept the default install (option **1**). At the end, source the cargo env:
+**A menu appears** with three options. Just press **1** and **Return** — the default install is what you want.
+
+It downloads and installs. Takes 2–5 minutes.
+
+**At the very end** it says "To configure your current shell, run: `source "$HOME/.cargo/env"`". Do that:
 
 ```sh
 source "$HOME/.cargo/env"
 ```
 
-DragonSlayer needs Rust **1.95** or newer. If your version is older, run `rustup update`.
-
 Verify:
 
 ```sh
-rustc --version                  # ≥ 1.95
-cargo --version
-rustup component add clippy      # linter, used by `cargo clippy`
-rustup component add rustfmt     # formatter, used by `cargo fmt`
+rustc --version
 ```
 
-## 5. Git first-time setup
+Should print something like `rustc 1.98.0`. **If the number after `1.` is less than 95, run** `rustup update`.
 
-Once per machine. Substitute your name and the email you use on GitHub:
+## 6. Tell git who you are
+
+Substitute your real name and the email you use on GitHub. **These lines are per-machine — do them once, ever.**
 
 ```sh
-git config --global user.name  "Your Name"
+git config --global user.name  "Your Real Name"
 git config --global user.email "you@example.com"
-
 git config --global init.defaultBranch main
-git config --global pull.rebase false       # merge on `git pull`; change to true if you prefer rebase
-git config --global core.editor "code --wait"   # or nano, vim, whatever you use
-git config --global core.autocrlf input     # don't convert LF to CRLF on commit
+git config --global pull.rebase false
+git config --global core.autocrlf input
 ```
 
-Sanity check:
+`--global` means "for every project on this Mac". `user.name` and `user.email` show up on your commits.
+
+## 7. Set your Mac up to talk to GitHub
+
+Two options. Pick one.
+
+### Option A — HTTPS (easier, five steps)
+
+This uses your GitHub username and a **Personal Access Token** (not your password — GitHub doesn't accept passwords over HTTPS anymore).
+
+1. Open <https://github.com/settings/tokens/new?scopes=repo&description=DragonSlayer%20on%20my%20Mac> in your browser.
+2. GitHub asks you to sign in / confirm.
+3. Under "Expiration" pick **90 days** (or "No expiration" if you're lazy).
+4. Scroll down and click **Generate token**.
+5. GitHub shows a token that starts `ghp_` or `github_pat_`. **Copy it — you won't see it again.**
+
+You'll paste this token the first time you push to GitHub. macOS remembers it in the Keychain, so you paste it once.
+
+Skip to step 8.
+
+### Option B — SSH key (more setup, no password prompts)
+
+Better long-term. One five-minute setup, then it just works forever.
 
 ```sh
-git config --global --list | grep -E "user\.|init\.|pull\.|core\."
-```
-
-## 6. SSH key for GitHub
-
-Push and pull without typing a password. If you already have `~/.ssh/id_ed25519` you can skip the `ssh-keygen` step.
-
-```sh
-# Generate an ed25519 key. Press Enter at each prompt to accept defaults.
-# You can set a passphrase or leave blank; blank is more convenient, a
-# passphrase is safer.
 ssh-keygen -t ed25519 -C "you@example.com"
+```
 
-# Start the ssh-agent and load the key
+Press **Return** three times to accept every default (default location, no passphrase, confirm no passphrase). Passphrases are safer; blank is easier. Your call.
+
+```sh
 eval "$(ssh-agent -s)"
 ssh-add --apple-use-keychain ~/.ssh/id_ed25519
+```
 
-# Persist that agent behaviour across reboots
-cat >> ~/.ssh/config <<'EOF'
+Persist the agent so it survives reboots:
+
+```sh
+mkdir -p ~/.ssh && cat >> ~/.ssh/config <<'EOF'
 Host github.com
   AddKeysToAgent yes
   UseKeychain yes
   IdentityFile ~/.ssh/id_ed25519
 EOF
+```
 
-# Copy the public key to your clipboard
+Copy your public key to the clipboard:
+
+```sh
 pbcopy < ~/.ssh/id_ed25519.pub
 ```
 
-Now open <https://github.com/settings/ssh/new>, paste, give it a title (e.g. *"MacBook Pro"*), and save.
+Open <https://github.com/settings/ssh/new>, paste (**⌘V**) into the "Key" box, name it something like *"MacBook Pro"*, and click **Add SSH key**.
 
-Test:
+Test it:
 
 ```sh
 ssh -T git@github.com
 ```
 
-You should see: *"Hi TheMagnificentRonnie! You've successfully authenticated..."*
+The first time it asks *"Are you sure you want to continue connecting?"* — type **yes** and Return.
 
-## 7. Clone DragonSlayer
+Should print: `Hi <your-username>! You've successfully authenticated…`
 
-Pick where you keep your code. `~/src` or `~/Developer` are common.
+## 8. Download DragonSlayer
+
+Pick where to keep it. `~/Developer` is Apple's suggestion:
 
 ```sh
 mkdir -p ~/Developer && cd ~/Developer
-git clone git@github.com:TheMagnificentRonnie/DragonSlayer.git
-cd DragonSlayer
 ```
 
-If you're not a collaborator on the repo, use HTTPS and open pull requests from your own fork:
+Then either (matching your choice in step 7):
 
 ```sh
+# Option A — HTTPS
 git clone https://github.com/TheMagnificentRonnie/DragonSlayer.git
+
+# Option B — SSH
+git clone git@github.com:TheMagnificentRonnie/DragonSlayer.git
+```
+
+**First time you push (later) with Option A**, git asks for a username and password. Your GitHub username, and for the password paste the `ghp_...` token from step 7. macOS Keychain remembers it forever after.
+
+```sh
 cd DragonSlayer
-git remote add upstream https://github.com/TheMagnificentRonnie/DragonSlayer.git
 ```
 
-## 8. Build
+## 9. Build DragonSlayer
 
-### Mock-camera build (no libgphoto2 needed)
-
-Fast, useful for UI work.
+Point Rust at Homebrew's `pkg-config` (needs doing once per Terminal window, or add to your shell profile):
 
 ```sh
-cargo build --release
-cargo test --workspace
-```
-
-Expected: `Finished 'release' profile [optimized] target(s)` and `test result: ok. 10 passed`.
-
-### Real-camera build
-
-```sh
-cargo build --release --features gphoto2 -p dragonslayer-cli -p dragonslayer-app
-```
-
-If pkg-config complains it can't find libgphoto2:
-
-```sh
-brew reinstall libgphoto2 pkg-config
 export PKG_CONFIG_PATH="$(brew --prefix)/lib/pkgconfig"
-cargo clean
+```
+
+**Optional but nice** — make that permanent so you don't have to type it in every new Terminal:
+
+```sh
+echo 'export PKG_CONFIG_PATH="$(brew --prefix)/lib/pkgconfig"' >> ~/.zprofile
+```
+
+Now build:
+
+```sh
 cargo build --release --features gphoto2 -p dragonslayer-cli -p dragonslayer-app
 ```
 
-### Lint and format
+The first build takes **5–15 minutes** — Rust downloads and compiles every dependency once. Subsequent builds are seconds.
 
-Before opening a PR:
+**Success looks like** a line at the end saying `Finished 'release' profile [optimized] target(s) in 4m 27s`.
 
-```sh
-cargo fmt --all
-cargo clippy --workspace --all-targets    # should be silent
-cargo test --workspace
-```
+**Failure looks like** red text saying `error[...]`. If you see that, jump to Troubleshooting below.
 
-## 9. Run
+## 10. Run DragonSlayer
 
-### Mock camera (no hardware)
+### Without a camera (try the app)
 
 ```sh
 cargo run --release -p dragonslayer-app -- --mock
 ```
 
-The mock camera renders a moving orange square with live view and simulates RAW+JPEG, so the whole capture / onion-skin / compile pipeline exercises without a real camera plugged in.
+The app window opens with a fake camera showing a moving orange square. Press **H** for the in-app help. Press **Space** to capture a fake frame.
 
-### Real camera
+### With your camera
 
-Before plugging in, release the camera from macOS's own capture daemons:
+1. Turn the camera on. Put it in **PC** / **PC(Tether)** / **PTP** mode via its menu.
+2. Plug it into a USB port on the Mac.
+3. **Quit Photos and Image Capture** if they open — they'll steal the camera.
+4. In Terminal:
 
 ```sh
-# Quit Photos and Image Capture first (⌘Q in each), then:
 killall ptpcamerad
 ```
 
-Now plug in the camera on USB, turn it on, set the USB mode to **PC** / **PC(Tether)** / **PTP** (see the in-app Help for camera-specific menus), and:
+That's a macOS background daemon that grabs cameras. Killing it releases yours. It restarts itself when needed.
+
+5. Now run the app:
 
 ```sh
 cargo run --release --features gphoto2 -p dragonslayer-app
 ```
 
-Or via the CLI:
+The dot in the top right of the app window should be **green** with your camera's name next to it.
+
+Click **New project…**, pick a folder, press **Space** to capture.
+
+## 11. Every day after this
+
+Once the setup is done, each session is:
+
+```sh
+cd ~/Developer/DragonSlayer
+git pull                                                # get updates
+cargo run --release --features gphoto2 -p dragonslayer-app
+```
+
+If you want to always build the CLI too:
 
 ```sh
 cargo run --release --features gphoto2 -p dragonslayer-cli -- cameras
 cargo run --release --features gphoto2 -p dragonslayer-cli -- new ~/Films/MyFilm
-cargo run --release --features gphoto2 -p dragonslayer-cli -- capture ~/Films/MyFilm sc010 --count 3
 ```
 
-### Convenience aliases
-
-If you'll launch the app often, add to `~/.zshrc`:
+Add these to your shell so it's shorter:
 
 ```sh
-alias dsl-app='cargo run --release --features gphoto2 -p dragonslayer-app --'
-alias dsl='cargo run --release --features gphoto2 -p dragonslayer-cli --'
+echo "alias dsl-app='cd ~/Developer/DragonSlayer && cargo run --release --features gphoto2 -p dragonslayer-app --'" >> ~/.zprofile
+echo "alias dsl='cd ~/Developer/DragonSlayer && cargo run --release --features gphoto2 -p dragonslayer-cli --'" >> ~/.zprofile
 ```
 
-Then:
+Restart Terminal, then just:
 
 ```sh
+dsl-app
 dsl cameras
-dsl-app ~/Films/MyFilm
 ```
 
-## 10. Editor setup (optional)
+---
 
-### VS Code
+## Troubleshooting
+
+### "command not found: brew"
+
+Terminal doesn't know where Homebrew is. Quit Terminal (⌘Q), open again. If still nothing, re-run the two `eval` lines from the end of step 3.
+
+### "command not found: cargo"
+
+Same but for Rust:
 
 ```sh
-brew install --cask visual-studio-code
-code --install-extension rust-lang.rust-analyzer
-code --install-extension tamasfe.even-better-toml
-code --install-extension vadimcn.vscode-lldb
+source "$HOME/.cargo/env"
 ```
 
-Open the project:
+Add to your profile so it's permanent:
 
 ```sh
-code ~/Developer/DragonSlayer
+echo 'source "$HOME/.cargo/env"' >> ~/.zprofile
 ```
 
-`rust-analyzer` picks up the workspace automatically. The included `Cargo.toml` at the root defines the `dragonslayer-*` members so all crates get analysed together.
+### "Could not find libgphoto2" during `cargo build`
 
-### RustRover / IntelliJ
-
-Just open the folder — the Rust plugin autodetects the workspace.
-
-### Terminal-only
-
-`neovim` + `rustaceanvim` + `nvim-lspconfig`, or plain `vim` + `rust.vim`. Whichever you already use.
-
-## 11. Troubleshooting
-
-### `cargo build` fails with "no acceptable C compiler found in $PATH"
-
-You skipped step 1. Run `xcode-select --install`.
-
-### `Could not find libgphoto2` (pkg-config error)
-
-Either libgphoto2 isn't installed or `PKG_CONFIG_PATH` doesn't point at Homebrew:
+`PKG_CONFIG_PATH` isn't set. From step 9:
 
 ```sh
-brew install libgphoto2 pkg-config
 export PKG_CONFIG_PATH="$(brew --prefix)/lib/pkgconfig"
-echo 'export PKG_CONFIG_PATH="$(brew --prefix)/lib/pkgconfig"' >> ~/.zshrc
 ```
 
-Then `cargo clean && cargo build --features gphoto2`.
-
-### `Unable to find libclang` (bindgen error)
-
-The `libgphoto2-sys` crate uses `bindgen`, which needs libclang. Xcode Command Line Tools include one:
+If it still fails after that:
 
 ```sh
-xcode-select --install
-# If still failing, point bindgen at Homebrew's clang:
+brew reinstall libgphoto2 pkg-config
+cargo clean
+export PKG_CONFIG_PATH="$(brew --prefix)/lib/pkgconfig"
+cargo build --release --features gphoto2 -p dragonslayer-cli -p dragonslayer-app
+```
+
+### "unable to find libclang" during `cargo build`
+
+You haven't fully installed the Xcode Command Line Tools. Re-run step 2. If still failing:
+
+```sh
 brew install llvm
 export LIBCLANG_PATH="$(brew --prefix llvm)/lib"
 ```
 
-### Camera not found
+### `git push` asks for a password and rejects the one you type
 
-- Quit Photos and Image Capture, then `killall ptpcamerad`.
-- Plug the camera into a different USB port.
-- Check the camera's USB mode is *PC* / *PC(Tether)* / *PTP*, not *Mass Storage* / *Card Reader*.
-- Turn the camera off, wait 3 s, on again (fixes wedged PTP sessions).
-- Full checklist inside the app: **Help → Troubleshooting**.
+GitHub doesn't accept your account password over HTTPS. Go back to step 7 Option A and use a Personal Access Token as the password. Or set up SSH keys (step 7 Option B).
 
-### `dyld: Library not loaded: libgphoto2.6.dylib` at runtime
+### `git clone` says "Permission denied (publickey)"
 
-The built binary can't find libgphoto2 at runtime. Homebrew's install location must be on the loader path:
+You picked SSH (Option B) but the key isn't uploaded to GitHub. Re-run:
 
 ```sh
-brew reinstall libgphoto2
-# If still failing:
-export DYLD_LIBRARY_PATH="$(brew --prefix)/lib:$DYLD_LIBRARY_PATH"
+pbcopy < ~/.ssh/id_ed25519.pub
 ```
 
-### `ssh: connect to host github.com port 22: Connection refused`
+Then paste into <https://github.com/settings/ssh/new>.
 
-Your network blocks outbound SSH. Use HTTPS instead:
+### The app opens but the window is blank / black
 
-```sh
-git remote set-url origin https://github.com/TheMagnificentRonnie/DragonSlayer.git
-```
-
-You'll be prompted for credentials on push. Use a [GitHub Personal Access Token](https://github.com/settings/tokens) as the password; it can be cached by macOS's Keychain via `git config --global credential.helper osxkeychain` (usually already configured).
-
-### `cargo build` succeeds but the app window is blank / black
-
-Update wgpu's Metal backend — usually resolved by:
+Update Rust and rebuild:
 
 ```sh
 rustup update stable
@@ -366,30 +427,66 @@ cargo clean
 cargo build --release --features gphoto2 -p dragonslayer-app
 ```
 
-If the window is still blank after an update, check the Console app for `Metal` or `wgpu` errors and open an issue with the log.
+### "Camera not found" — but it's plugged in
 
-### Rust says "unresolved import" but everything compiles
+In order:
 
-Restart rust-analyzer (`⌘⇧P` → "Rust Analyzer: Restart Server" in VS Code). This happens after major dependency updates.
+1. Turn the camera off. Wait 3 seconds. Turn it on.
+2. Unplug USB. Wait 3 seconds. Plug back in (different port is fine).
+3. Quit Photos and Image Capture again. Run `killall ptpcamerad` again.
+4. Check the camera's USB mode: **PC** / **PC(Tether)** / **PTP** — not *Mass Storage* / *Card Reader*.
+5. Check the camera's battery isn't flat.
 
----
+The most common cause is a wedged PTP session — a previous run crashed while the camera was open. The camera off/on fixes it 90% of the time. Nothing on the camera is damaged.
 
-## Verifying everything works — one-liner
+### `dyld[…]: Library not loaded: libgphoto2.6.dylib` at runtime
+
+The compiled app can't find libgphoto2 at run time.
 
 ```sh
-brew list libgphoto2 ffmpeg pkg-config >/dev/null && \
-  rustc --version | grep -q 'rustc 1\.\(9[5-9]\|[0-9][0-9][0-9]\)' && \
-  git remote get-url origin >/dev/null && \
-  cargo test --workspace 2>&1 | grep -q '10 passed' && \
-  echo "✅ DragonSlayer dev environment is good."
+brew reinstall libgphoto2
 ```
+
+If still failing, tell the app loader where Homebrew installs libraries:
+
+```sh
+export DYLD_LIBRARY_PATH="$(brew --prefix)/lib:$DYLD_LIBRARY_PATH"
+```
+
+Add to your profile so it persists:
+
+```sh
+echo 'export DYLD_LIBRARY_PATH="$(brew --prefix)/lib:$DYLD_LIBRARY_PATH"' >> ~/.zprofile
+```
+
+### "This Mac says the app is damaged or from an unidentified developer"
+
+If you downloaded a pre-built binary (not built yourself):
+
+```sh
+xattr -dr com.apple.quarantine ~/Downloads/DragonSlayer
+```
+
+If you built from source, this doesn't apply — the OS trusts what it just built.
+
+### Anything else
+
+- Open **Help** inside the app (press **H**) — has a full troubleshooting section for camera-side issues.
+- The last few lines of `~/Library/Logs/dragonslayer.log` usually explain what happened.
+- Open an issue at <https://github.com/TheMagnificentRonnie/DragonSlayer/issues>. Attach the last 30 lines of the log and the exact error you saw.
 
 ---
 
-## Where to go next
+## What just happened
 
-- [`README.md`](README.md) — features, project format, quick start
-- [`MANUAL_TESTING.md`](MANUAL_TESTING.md) — full manual test plan (do §0–§4 to sanity-check a fresh build)
-- [`dragonslayer-spec.md`](dragonslayer-spec.md) — design document
-- [`CAMERAS.md`](CAMERAS.md) — camera compatibility
-- The in-app **Help** modal (press **H** in the app)
+You installed a compiler toolchain (Xcode CLT), a package manager (Homebrew), a camera library (libgphoto2), a video builder (ffmpeg), a build helper (pkg-config), a programming language (Rust), a version control system (git — you already had Apple's, now you have a newer one), and set your Mac up to identify with GitHub. Then you cloned the DragonSlayer source, built it, and ran it.
+
+None of that is DragonSlayer-specific. Every Rust project on macOS starts the same way. Every future DragonSlayer session is now three commands:
+
+```sh
+cd ~/Developer/DragonSlayer
+git pull
+cargo run --release --features gphoto2 -p dragonslayer-app
+```
+
+That's it. Welcome in.
