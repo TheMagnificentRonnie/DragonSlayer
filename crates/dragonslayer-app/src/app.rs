@@ -876,6 +876,69 @@ impl DragonSlayerApp {
 
         let _ = showing_live;
         overlay(ui, rect, &scene_label, &mode_label);
+
+        // Picture-in-picture live view: when reviewing a captured frame or playing back,
+        // keep the camera's live feed visible in the corner so the animator can line up
+        // the next shot while looking at the last one.
+        if !self.viewer.is_live()
+            && let Some(live) = &self.live
+        {
+            let pip_w = (area.width() * 0.22).clamp(180.0, 320.0);
+            let live_size = live.size_vec2();
+            let aspect = if live_size.x > 0.0 { live_size.y / live_size.x } else { 0.5625 };
+            let pip_h = pip_w * aspect;
+            let margin = 12.0;
+            let pip_rect = Rect::from_min_size(
+                egui::pos2(rect.right() - pip_w - margin, rect.top() + margin),
+                Vec2::new(pip_w, pip_h),
+            );
+            painter.rect_filled(pip_rect.expand(4.0), 4.0, Color32::from_black_alpha(180));
+            painter.image(
+                live.id(),
+                pip_rect,
+                Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                Color32::WHITE,
+            );
+            painter.rect_stroke(
+                pip_rect,
+                3.0,
+                Stroke::new(1.5, Color32::from_rgb(230, 90, 90)),
+                egui::epaint::StrokeKind::Outside,
+            );
+            let dot = pip_rect.left_top() + Vec2::new(10.0, 10.0);
+            painter.circle_filled(dot, 4.0, Color32::from_rgb(230, 60, 60));
+            painter.text(
+                dot + Vec2::new(10.0, -2.0),
+                Align2::LEFT_TOP,
+                "LIVE",
+                FontId::proportional(12.0),
+                Color32::WHITE,
+            );
+            painter.text(
+                pip_rect.right_bottom() + Vec2::new(-6.0, -4.0),
+                Align2::RIGHT_BOTTOM,
+                "click to swap",
+                FontId::proportional(10.0),
+                Color32::from_white_alpha(180),
+            );
+            // Click the PIP to swap the main viewer back to live.
+            let resp = ui.interact(pip_rect, egui::Id::new("live pip"), Sense::click());
+            if resp.clicked() {
+                self.viewer = ViewerState::Live;
+            }
+            if resp.hovered() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+            }
+        }
+
+        // Also let a click on the main viewer, when we're reviewing, offer a way to jump
+        // back to live. Right-click anywhere in the viewer → back to live view.
+        if !self.viewer.is_live() {
+            let resp = ui.interact(rect, egui::Id::new("viewer main"), Sense::click());
+            if resp.secondary_clicked() {
+                self.viewer = ViewerState::Live;
+            }
+        }
     }
 
     /// Filmstrip timeline: clickable thumbnails of the active scene's frames
