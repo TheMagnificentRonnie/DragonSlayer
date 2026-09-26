@@ -142,7 +142,7 @@ fn compile_plan_orders_scenes_and_uses_scene_fps() {
     p.add_scene("Empty", None).unwrap();
     p.move_scene("sc020", 0).unwrap();
 
-    let (shots, warnings) = compile::plan(&p, None).unwrap();
+    let (shots, warnings) = compile::plan(&p, None, None).unwrap();
     let got: Vec<(String, f64)> = shots
         .iter()
         .map(|s| {
@@ -155,7 +155,11 @@ fn compile_plan_orders_scenes_and_uses_scene_fps() {
         [("sc020".into(), 1.0 / 6.0), ("sc020".into(), 1.0 / 6.0), ("sc010".into(), 1.0 / 12.0)]
     );
     assert_eq!(warnings.len(), 1, "empty scene warns");
-    assert!(compile::plan(&p, Some("Empty")).is_err());
+    assert!(compile::plan(&p, Some("Empty"), None).is_err());
+
+    // With an fps override every shot gets the same duration regardless of scene fps.
+    let (shots, _) = compile::plan(&p, None, Some(24)).unwrap();
+    assert!(shots.iter().all(|s| (s.seconds - 1.0 / 24.0).abs() < 1e-9));
 }
 
 #[test]

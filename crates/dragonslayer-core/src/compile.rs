@@ -47,6 +47,10 @@ pub struct Settings {
     pub format: Format,
     pub resolution: Resolution,
     pub framing: Framing,
+    /// If set, forces the whole compile to this playback rate — every frame gets a
+    /// 1/fps duration regardless of the project or per-scene overrides. Left `None`,
+    /// each scene uses its own fps (or the project's).
+    pub fps_override: Option<u32>,
     /// ffmpeg executable; defaults to `ffmpeg` on PATH.
     pub ffmpeg: Option<PathBuf>,
 }
@@ -67,7 +71,10 @@ pub struct Shot {
 
 /// Builds the ordered frame list: one scene, or every scene in project order.
 /// Mixed scene rates are handled by giving each frame its own duration.
-pub fn plan(project: &Project, scene: Option<&str>) -> Result<(Vec<Shot>, Vec<String>)> {
+///
+/// `fps_override`, if set, forces every frame's duration to `1 / fps`, ignoring
+/// per-scene rates. Otherwise each scene contributes at its own fps.
+pub fn plan(project: &Project, scene: Option<&str>, fps_override: Option<u32>) -> Result<(Vec<Shot>, Vec<String>)> {
     let scenes = match scene {
         Some(key) => vec![project.find_scene(key)?],
         None => project.scenes()?,
@@ -75,7 +82,8 @@ pub fn plan(project: &Project, scene: Option<&str>) -> Result<(Vec<Shot>, Vec<St
     let mut shots = Vec::new();
     let mut warnings = Vec::new();
     for s in &scenes {
-        let seconds = 1.0 / f64::from(project.fps_for(s));
+        let fps = fps_override.unwrap_or_else(|| project.fps_for(s));
+        let seconds = 1.0 / f64::from(fps);
         let frames = s.frames()?;
         if frames.is_empty() {
             warnings.push(format!("scene {:?} ({}) is empty; skipped", s.name(), s.id()));
@@ -96,7 +104,7 @@ pub fn plan(project: &Project, scene: Option<&str>) -> Result<(Vec<Shot>, Vec<St
 }
 
 pub fn compile(project: &Project, scene: Option<&str>, settings: &Settings) -> Result<Output> {
-    let (shots, warnings) = plan(project, scene)?;
+    let (shots, warnings) = plan(project, scene, settings.fps_override)?;
     let exports = paths::exports_dir(&project.root);
     fs::create_dir_all(&exports).at(&exports)?;
 
@@ -116,7 +124,7 @@ pub fn compile(project: &Project, scene: Option<&str>, settings: &Settings) -> R
 
     let ffmpeg = settings.ffmpeg.clone().unwrap_or_else(|| "ffmpeg".into());
     let result = Command::new(&ffmpeg)
-        .args(ffmpeg_args(&list, &out, project.file.fps, settings))
+        .args(ffmpeg_args(&list, &out, settings.fps_override.unwrap_or(project.file.fps), settings))
         .output();
     let _ = fs::remove_file(&list);
 

@@ -36,6 +36,10 @@ struct CompileDialog {
     format: Format,
     resolution: Resolution,
     framing: Framing,
+    /// None = use the project (and per-scene) frame rates as-is.
+    /// Some(n) = compile at n fps: every scene's per-frame duration becomes 1/n,
+    /// so the whole film plays back at that rate regardless of what it was captured at.
+    fps: Option<u32>,
     running: Option<Receiver<Result<compile::Output, String>>>,
     result: Option<Result<compile::Output, String>>,
 }
@@ -48,6 +52,7 @@ impl Default for CompileDialog {
             format: Format::H264,
             resolution: Resolution::Source,
             framing: Framing::Fit,
+            fps: None,
             running: None,
             result: None,
         }
@@ -723,6 +728,45 @@ impl DragonSlayerApp {
                             });
                         });
                         ui.end_row();
+
+                        ui.label("Frame rate");
+                        ui.horizontal(|ui| {
+                            let default_fps = self
+                                .project
+                                .as_ref()
+                                .map(|p| p.file.fps)
+                                .unwrap_or(dragonslayer_core::project::DEFAULT_FPS);
+                            let mut override_on = d.fps.is_some();
+                            if ui
+                                .checkbox(&mut override_on, "")
+                                .on_hover_text("Override the project frame rate for this compile")
+                                .changed()
+                            {
+                                d.fps = override_on.then_some(default_fps);
+                            }
+                            if let Some(fps) = &mut d.fps {
+                                egui::ComboBox::from_id_salt("compile fps")
+                                    .selected_text(format!("{fps} fps"))
+                                    .show_ui(ui, |ui| {
+                                        for choice in [6, 8, 10, 12, 15, 18, 24, 25, 30, 48, 60] {
+                                            ui.selectable_value(fps, choice, format!("{choice} fps"));
+                                        }
+                                    });
+                                ui.label(
+                                    RichText::new(format!(
+                                        "(project is {default_fps} fps; scene overrides ignored)"
+                                    ))
+                                    .small()
+                                    .color(ui.visuals().weak_text_color()),
+                                );
+                            } else {
+                                ui.label(
+                                    RichText::new(format!("Use project ({default_fps} fps) and per-scene overrides"))
+                                        .color(ui.visuals().weak_text_color()),
+                                );
+                            }
+                        });
+                        ui.end_row();
                     });
                 });
 
@@ -735,7 +779,13 @@ impl DragonSlayerApp {
                 } else if ui.button(RichText::new("Compile").strong()).clicked()
                     && let Some(p) = self.project.clone() {
                         let scene = (d.scope == Scope::Scene).then(|| p.file.active_scene.clone()).flatten();
-                        let settings = Settings { format: d.format, resolution: d.resolution, framing: d.framing, ffmpeg: None };
+                        let settings = Settings {
+                            format: d.format,
+                            resolution: d.resolution,
+                            framing: d.framing,
+                            fps_override: d.fps,
+                            ffmpeg: None,
+                        };
                         let (tx, rx) = mpsc::channel();
                         let ctx = ui.ctx().clone();
                         thread::spawn(move || {

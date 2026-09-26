@@ -63,6 +63,10 @@ enum Cmd {
         /// Crop to fill the frame instead of fitting with bars.
         #[arg(long)]
         crop: bool,
+        /// Override the playback frame rate for this compile.
+        /// Without this, the project fps (and per-scene overrides) are used.
+        #[arg(long)]
+        fps: Option<u32>,
     },
 }
 
@@ -128,7 +132,7 @@ fn run(cli: Cli) -> Result<()> {
             let frame = s.delete_last()?;
             println!("Moved frame {frame} of {} to trash ({} left)", s.name(), s.frame_count()?);
         }
-        Cmd::Compile { project, scene, format, resolution, crop } => {
+        Cmd::Compile { project, scene, format, resolution, crop, fps } => {
             let p = open(&project)?;
             let settings = Settings {
                 format: match format {
@@ -141,6 +145,7 @@ fn run(cli: Cli) -> Result<()> {
                     ResArg::Hd => Resolution::Hd,
                 },
                 framing: if crop { Framing::Crop } else { Framing::Fit },
+                fps_override: fps,
                 ffmpeg: None,
             };
             let out = compile::compile(&p, scene.as_deref(), &settings)?;
