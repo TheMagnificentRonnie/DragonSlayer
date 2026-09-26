@@ -32,6 +32,7 @@ Each item has a rough complexity rating: **S** (a day), **M** (a week), **L** (a
 - ✅ Picture-in-picture of the other view *(0.2.0)*
 - ✅ Dockable panels (egui_dock), menu bar, Phosphor icons, three themes *(0.2.0)*
 - ✅ Self-contained macOS app (Apple Silicon): libgphoto2 + camera drivers + ffmpeg bundled, `scripts/package-macos.sh` *(0.2.1)*
+- ✅ Interval capture: N frames every S seconds from the Camera panel, stoppable, stops cleanly on camera loss *(unreleased)*
 
 ---
 
@@ -112,10 +113,19 @@ What makes DragonSlayer feel like an intentional product rather than a hobby pro
 - ⭐ **Arduino / serial motion control** — plug in a stepper controller, program a move (dolly, pan, rack focus) and have DragonSlayer step the motion between each capture. This is the Dragonframe DMC feature and is huge for studios doing puppet work.
 - ⭐ **Motion control preview** — run the whole move without capture to verify it before commit.
 
-### Multi-camera (L)
+### Multi-angle capture (L) — backlog
 
-- ⭐ **Two-camera capture** — main + witness angle, or stereo pair, captured in sync each frame. libgphoto2 supports it, our session code doesn't.
-- ⭐ **Camera roles** — main, witness, focus-puller-view. Compile picks main by default.
+One scene, two (or more) cameras: one Space press = one frame from every angle. Stop-motion doesn't need true sync (nothing moves between shots), so cameras can fire sequentially; capture time is the slowest camera's.
+
+- ⭐ **Data model** — a frame is a *moment* with files per angle: `frames/A/000001.jpg`, `frames/B/000001.jpg`. One journal and frame numbering per scene, so angles stay in lockstep. Each angle folder imports directly into an NLE as an image sequence. Delete-last removes the moment from all angles. Format bump to `dragonslayer/2`; existing projects migrate as angle A.
+- ⭐ **Partial frames** — if angle A succeeds and B fails, commit A, mark B missing, offer "reshoot angle B for frame N". Never discard a good frame. Recovery gets per-angle pending folders.
+- ⭐ **Camera identity by serial number** — USB ports change on replug. Bind angles to serials; fall back to port with a warning when a camera doesn't report one (matters most with two identical bodies).
+- ⭐ **One session worker per camera**, each with its own libgphoto2 context. Windows needs Zadig per camera.
+- ⭐ **Live view from the viewed angle only** — two streams doubles USB traffic and wedge risk (Panasonic) plus sensor heat. The other angle idles until capture.
+- ⭐ **UI** — 1/2 (or Tab) switches angle in the viewer; PiP shows the other angle; onion skin per angle; Preview keeps the frame index across angle switches; per-camera status in the status bar (`A ● GH5  B ● 100D`). Interval capture waits for all angles.
+- ⭐ **Compile one video per angle** (`sc010_A.mp4`, `sc010_B.mp4`), identical frame count and timing so they line up in an editor. No auto-cutting between angles — that's editing.
+- **Build order:** multi-device mock + core tests → format v2 + migration → multi-worker session with serial assignment → UI → real GH5 + 100D test.
+- **Open questions:** 2 angles or N? Partial frames kept-and-marked vs all-or-nothing? One live feed at a time acceptable?
 
 ### Guides and overlays (S)
 
@@ -206,7 +216,7 @@ _Delivers: opens DragonSlayer to iOS-camera users on Macs._
 Reference audio timeline, per-frame notes, multiple takes.
 _Delivers: dialogue lip-sync workflow, professional shot management._
 
-**0.7.0+** — motion control, DMX, chroma key, multi-camera, cloud review.
+**0.7.0+** — motion control, DMX, chroma key, multi-angle capture, cloud review.
 
 **Distribution (any release)** — signed + notarised Mac build (needs a paid Apple Developer account; removes the first-launch "Open Anyway" step), Intel Mac build, and Mac + Windows zips on the same release.
 

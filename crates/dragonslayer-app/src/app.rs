@@ -106,6 +106,12 @@ pub struct DragonSlayerApp {
     /// Wall-clock time of the last playback frame advance; also used as a repaint anchor.
     playback_tick: Instant,
     capturing: bool,
+    /// Interval-capture UI settings. Persist across single captures so the user's
+    /// last settings are still there when they open the panel again.
+    interval_count: u32,
+    interval_secs: f64,
+    /// Running interval sequence, if any. `None` when idle.
+    interval: Option<Interval>,
 
     onion_on: bool,
     onion_count: usize,
@@ -129,6 +135,22 @@ pub struct DragonSlayerApp {
 enum HelpOs {
     Windows,
     Mac,
+}
+
+/// An interval-capture sequence in progress. Between shots the app waits until
+/// `next_at`, then triggers one capture and clears `next_at` until the shot's
+/// `Event::Captured` comes back. That way we never overlap: a slow camera just
+/// slides the whole sequence, we don't queue captures on top of each other.
+#[derive(Clone, Copy, Debug)]
+struct Interval {
+    /// Total frames the user asked for.
+    total: u32,
+    /// Frames finished so far (advanced on `Event::Captured(Ok)`).
+    done: u32,
+    /// Seconds between the end of one capture and the trigger of the next.
+    every: f64,
+    /// When the next capture should fire. `None` while a capture is in flight.
+    next_at: Option<Instant>,
 }
 
 /// Two modes: Add Frames (live view, Space captures) and Preview (browse the
@@ -180,6 +202,9 @@ impl DragonSlayerApp {
             theme_choice: crate::theme::ThemeChoice::DarkTeal,
             playback_tick: Instant::now(),
             capturing: false,
+            interval_count: 10,
+            interval_secs: 2.0,
+            interval: None,
             onion_on: true,
             onion_count: 1,
             onion_opacity: 0.55,
@@ -302,6 +327,48 @@ impl DragonSlayerApp {
             }
     }
 
+    /// Kicks off an N-shot interval sequence. First shot fires immediately;
+    /// subsequent shots fire `every` seconds after the previous one COMPLETES,
+    /// so a slow camera slides the schedule instead of pileup.
+    fn start_interval(&mut self) {
+        if self.interval.is_some() || self.interval_count == 0 {
+            return;
+        }
+        self.interval =
+            Some(Interval { total: self.interval_count, done: 0, every: self.interval_secs, next_at: Some(Instant::now()) });
+        self.tick_interval();
+    }
+
+    fn stop_interval(&mut self, reason: &str) {
+        if let Some(iv) = self.interval.take() {
+            self.info(format!("Interval stopped ({reason}): {}/{} frames captured", iv.done, iv.total));
+        }
+    }
+
+    /// If an interval is running and the next scheduled time has arrived, fire
+    /// the next capture. Called from `update()` every repaint and after each
+    /// `Event::Captured`.
+    fn tick_interval(&mut self) {
+        let should_fire = match self.interval {
+            Some(iv) if !self.capturing && iv.done < iv.total => {
+                iv.next_at.is_some_and(|at| Instant::now() >= at)
+            }
+            _ => false,
+        };
+        if !should_fire {
+            return;
+        }
+        // Bail out cleanly if the camera or project disappeared under us.
+        if !self.camera_ready() || self.project.is_none() {
+            self.stop_interval("no camera");
+            return;
+        }
+        if let Some(iv) = self.interval.as_mut() {
+            iv.next_at = None;
+        }
+        self.capture();
+    }
+
     fn delete_last(&mut self) {
         let Some(p) = &self.project else { return };
         let result = p.active_scene().and_then(|s| s.delete_last());
@@ -323,6 +390,9 @@ impl DragonSlayerApp {
                     if !matches!(s, Status::Connected { .. }) {
                         self.live = None;
                         self.capturing = false;
+                        if self.interval.is_some() {
+                            self.stop_interval("camera lost");
+                        }
                     }
                     self.status = s;
                 }
@@ -340,17 +410,37 @@ impl DragonSlayerApp {
                                 self.images.prefetch(jpg, width);
                                 self.images.prefetch(jpg, THUMB_WIDTH);
                             }
-                            let raw = c.files.iter().any(|f| !dragonslayer_core::scene::is_jpeg(f));
-                            if raw {
-                                self.info(format!("Frame {} saved", c.frame));
+                            if let Some(iv) = self.interval.as_mut() {
+                                iv.done = iv.done.saturating_add(1);
+                                if iv.done >= iv.total {
+                                    let total = iv.total;
+                                    self.interval = None;
+                                    self.info(format!("Interval done: {total} frames captured"));
+                                } else {
+                                    iv.next_at = Some(Instant::now() + Duration::from_secs_f64(iv.every.max(0.0)));
+                                    let done = iv.done;
+                                    let total = iv.total;
+                                    self.info(format!("Interval: {done}/{total}"));
+                                }
                             } else {
-                                self.info(format!(
-                                    "Frame {} saved (JPEG only: set RAW+JPEG on the camera to keep RAW)",
-                                    c.frame
-                                ));
+                                let raw = c.files.iter().any(|f| !dragonslayer_core::scene::is_jpeg(f));
+                                if raw {
+                                    self.info(format!("Frame {} saved", c.frame));
+                                } else {
+                                    self.info(format!(
+                                        "Frame {} saved (JPEG only: set RAW+JPEG on the camera to keep RAW)",
+                                        c.frame
+                                    ));
+                                }
                             }
                         }
-                        Err(e) => self.error(format!("Capture failed: {e}")),
+                        Err(e) => {
+                            if self.interval.is_some() {
+                                self.stop_interval(&format!("capture failed: {e}"));
+                            } else {
+                                self.error(format!("Capture failed: {e}"));
+                            }
+                        }
                     }
                 }
             }
@@ -740,6 +830,72 @@ impl DragonSlayerApp {
             .clicked()
         {
             self.delete_last();
+        }
+        ui.add_space(10.0);
+        self.interval_ui(ui);
+    }
+
+    /// Interval-capture controls: N frames, every S seconds. Start/Stop toggles.
+    fn interval_ui(&mut self, ui: &mut egui::Ui) {
+        use egui_phosphor::regular as ph;
+        ui.separator();
+        ui.label(RichText::new("Interval capture").strong());
+        ui.label(
+            RichText::new("Fire N shots automatically, S seconds apart. Great for time-lapses of a set-up or a puppet slumping.")
+                .small()
+                .color(crate::theme::palette().text_muted),
+        );
+        ui.add_space(4.0);
+
+        let running = self.interval.is_some();
+        ui.add_enabled_ui(!running, |ui| {
+            ui.horizontal(|ui| {
+                ui.label("Frames");
+                ui.add(egui::DragValue::new(&mut self.interval_count).range(1..=9_999).speed(1.0));
+                ui.label("every");
+                ui.add(
+                    egui::DragValue::new(&mut self.interval_secs)
+                        .range(0.0..=3600.0)
+                        .speed(0.1)
+                        .suffix(" s"),
+                );
+            });
+        });
+
+        ui.add_space(4.0);
+
+        match self.interval {
+            None => {
+                let can_start = self.camera_ready() && self.active_row().is_some();
+                if ui
+                    .add_enabled(
+                        can_start,
+                        egui::Button::new(format!("{}  Start interval", ph::PLAY))
+                            .min_size(Vec2::new(ui.available_width(), 32.0)),
+                    )
+                    .clicked()
+                {
+                    self.start_interval();
+                }
+            }
+            Some(iv) => {
+                let remaining = iv.next_at.map(|at| at.saturating_duration_since(Instant::now())).unwrap_or_default();
+                let status = if self.capturing {
+                    format!("Capturing {}/{}…", iv.done + 1, iv.total)
+                } else {
+                    format!("Next in {:.1}s  ({}/{})", remaining.as_secs_f64(), iv.done, iv.total)
+                };
+                ui.label(RichText::new(status).color(crate::theme::palette().accent));
+                if ui
+                    .add(
+                        egui::Button::new(format!("{}  Stop", ph::STOP))
+                            .min_size(Vec2::new(ui.available_width(), 32.0)),
+                    )
+                    .clicked()
+                {
+                    self.stop_interval("stopped by user");
+                }
+            }
         }
     }
 
@@ -1938,9 +2094,16 @@ impl eframe::App for DragonSlayerApp {
 
         // Advance playback if we're currently playing.
         self.tick_playback();
+        // Advance an in-progress interval-capture sequence.
+        self.tick_interval();
 
-        // Keep live view, capture spinner, compile progress and playback repainting smoothly.
-        if self.live.is_some() || self.capturing || self.compile.running.is_some() || self.mode.is_playing() {
+        // Keep live view, capture spinner, compile progress, playback and interval countdowns repainting smoothly.
+        if self.live.is_some()
+            || self.capturing
+            || self.compile.running.is_some()
+            || self.mode.is_playing()
+            || self.interval.is_some()
+        {
             ctx.request_repaint_after(Duration::from_millis(16));
         }
     }
