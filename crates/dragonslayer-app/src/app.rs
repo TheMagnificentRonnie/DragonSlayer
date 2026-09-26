@@ -7,8 +7,38 @@ use eframe::egui::{
     self, Align, Align2, Color32, FontId, Key, Layout, Margin, Rect, RichText, Sense, Stroke,
     TextureHandle, TextureOptions, Vec2,
 };
+use egui_dock::{DockArea, DockState, NodeIndex};
 use dragonslayer_core::compile::{self, Format, Framing, Resolution, Settings};
 use dragonslayer_core::{Frame, Project};
+
+/// Dockable panes. Users can drag them into new tab groups, resize, or undock.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum Tab {
+    Scenes,
+    Viewer,
+    Timeline,
+    Camera,
+    Onion,
+    Export,
+}
+
+impl Tab {
+    fn default_layout() -> DockState<Tab> {
+        let mut dock = DockState::new(vec![Tab::Viewer]);
+        let surface = dock.main_surface_mut();
+        // Right side: camera + onion + export as three tabs of one node.
+        let [center, _right] = surface.split_right(
+            NodeIndex::root(),
+            0.72,
+            vec![Tab::Camera, Tab::Onion, Tab::Export],
+        );
+        // Left side: scenes list.
+        let [center_after_left, _left] = surface.split_left(center, 0.22, vec![Tab::Scenes]);
+        // Bottom: timeline strip.
+        let _ = surface.split_below(center_after_left, 0.78, vec![Tab::Timeline]);
+        dock
+    }
+}
 
 use crate::images::Images;
 use crate::session::{Cmd, Event, Session, Status};
@@ -71,6 +101,7 @@ pub struct DragonSlayerApp {
     /// Last live-active state we sent to the camera worker. `None` means we haven't
     /// sent anything yet; we send on the first frame to establish state.
     want_live_cached: Option<bool>,
+    dock_state: DockState<Tab>,
     /// Wall-clock time of the last playback frame advance; also used as a repaint anchor.
     playback_tick: Instant,
     capturing: bool,
@@ -145,6 +176,7 @@ impl DragonSlayerApp {
             live: None,
             mode: Mode::AddFrames,
             want_live_cached: None,
+            dock_state: Tab::default_layout(),
             playback_tick: Instant::now(),
             capturing: false,
             onion_on: true,
@@ -649,6 +681,127 @@ impl DragonSlayerApp {
     }
 
     /// Left panel: scene list.
+    // ---- dockable tab bodies -------------------------------------------
+
+    fn tab_scenes(&mut self, ui: &mut egui::Ui) {
+        use egui_phosphor::regular as ph;
+        ui.add_space(4.0);
+        ui.horizontal(|ui| {
+            if ui.button(format!("{}  Add scene", ph::PLUS)).clicked() {
+                let n = self.scenes.len() + 1;
+                let after = self.active_row().map(|r| r.id.clone());
+                self.edit(|p| p.add_scene(&format!("Scene {n}"), after.as_deref()).map(|_| ()));
+            }
+        });
+        ui.separator();
+        self.scene_list(ui);
+    }
+
+    fn tab_camera(&mut self, ui: &mut egui::Ui) {
+        use egui_phosphor::regular as ph;
+        ui.add_space(4.0);
+        egui::Frame::new()
+            .inner_margin(Margin::same(4))
+            .show(ui, |ui| self.camera_status(ui));
+        ui.add_space(6.0);
+        let can_capture = self.camera_ready() && !self.capturing && self.active_row().is_some();
+        let label = if self.capturing {
+            format!("{}  Capturing…", ph::RECORD)
+        } else {
+            format!("{}  Capture", ph::CAMERA)
+        };
+        let capture = egui::Button::new(RichText::new(label).size(16.0).strong().color(Color32::BLACK))
+            .fill(crate::theme::palette::ACCENT)
+            .min_size(Vec2::new(ui.available_width(), 44.0));
+        if ui.add_enabled(can_capture, capture).on_hover_text("Space").clicked() {
+            self.capture();
+        }
+        let has_frames = self.active_row().is_some_and(|r| r.count > 0);
+        if ui
+            .add_enabled(
+                has_frames,
+                egui::Button::new(format!("{}  Delete last frame", ph::TRASH))
+                    .min_size(Vec2::new(ui.available_width(), 32.0)),
+            )
+            .on_hover_text("Backspace — moves the frame to the scene's trash")
+            .clicked()
+        {
+            self.delete_last();
+        }
+    }
+
+    fn tab_onion(&mut self, ui: &mut egui::Ui) {
+        ui.add_space(4.0);
+        ui.checkbox(&mut self.onion_on, "Show onion skin (O)");
+        ui.add_enabled_ui(self.onion_on, |ui| {
+            ui.add(egui::Slider::new(&mut self.onion_count, 1..=5).text("frames"));
+            ui.add(egui::Slider::new(&mut self.onion_opacity, 0.05..=0.9).text("opacity"));
+            ui.checkbox(&mut self.onion_edges, "Outlines only (crisper over live view)");
+        });
+    }
+
+    fn tab_export(&mut self, ui: &mut egui::Ui) {
+        use egui_phosphor::regular as ph;
+        ui.add_space(4.0);
+        if ui
+            .add(
+                egui::Button::new(format!("{}  Compile video…", ph::EXPORT))
+                    .min_size(Vec2::new(ui.available_width(), 36.0)),
+            )
+            .clicked()
+        {
+            self.compile.open = true;
+            self.compile.result = None;
+        }
+        ui.add_space(6.0);
+        ui.label(
+            RichText::new("Renders your scenes to MP4 or ProRes MOV using ffmpeg. Files land in exports/ inside the project folder and are never overwritten.")
+                .small()
+                .color(crate::theme::palette::TEXT_MUTED),
+        );
+    }
+
+    fn tab_timeline(&mut self, ui: &mut egui::Ui) {
+        use egui_phosphor::regular as ph;
+        ui.add_space(2.0);
+        ui.horizontal(|ui| {
+            let has_frames = !self.frames.is_empty();
+            let playing = self.mode.is_playing();
+            ui.add_enabled_ui(has_frames, |ui| {
+                if ui.button(ph::SKIP_BACK).on_hover_text("Home — first frame").clicked() {
+                    self.jump_to(Some(0));
+                }
+                if ui.button(ph::CARET_LEFT).on_hover_text("← previous frame (Shift ×10)").clicked() {
+                    self.step(-1);
+                }
+                let play_icon = if playing { ph::PAUSE } else { ph::PLAY };
+                let play_btn = egui::Button::new(RichText::new(play_icon).size(18.0).strong().color(Color32::BLACK))
+                    .fill(crate::theme::palette::ACCENT)
+                    .min_size(Vec2::new(52.0, 30.0));
+                if ui.add(play_btn).on_hover_text("P — play/pause at scene fps").clicked() {
+                    self.toggle_play();
+                }
+                if ui.button(ph::CARET_RIGHT).on_hover_text("→ next frame (Shift ×10)").clicked() {
+                    self.step(1);
+                }
+                if ui.button(ph::SKIP_FORWARD).on_hover_text("End — last frame").clicked() {
+                    self.jump_to_end();
+                }
+            });
+            if !self.frames.is_empty() {
+                let n = self.frames.len();
+                let idx = self.mode.preview_index().unwrap_or(n - 1);
+                ui.separator();
+                ui.label(
+                    RichText::new(format!("Frame {} / {}", idx + 1, n))
+                        .monospace()
+                        .color(crate::theme::palette::TEXT_MUTED),
+                );
+            }
+        });
+        self.timeline(ui);
+    }
+
     fn nav_panel(&mut self, ui: &mut egui::Ui) {
         use egui_phosphor::regular as ph;
         ui.add_space(6.0);
@@ -1422,7 +1575,13 @@ impl DragonSlayerApp {
                         ui.spinner();
                         ui.label("Compiling…");
                     });
-                } else if ui.button(RichText::new("Compile").strong()).clicked()
+                } else if ui
+                    .add(
+                        egui::Button::new(RichText::new("Compile").strong().size(15.0).color(Color32::BLACK))
+                            .fill(crate::theme::palette::ACCENT)
+                            .min_size(Vec2::new(140.0, 34.0)),
+                    )
+                    .clicked()
                     && let Some(p) = self.project.clone() {
                         let scene = (d.scope == Scope::Scene).then(|| p.file.active_scene.clone()).flatten();
                         let settings = Settings {
@@ -1910,6 +2069,48 @@ fn reveal(path: &Path) {
     };
 }
 
+impl egui_dock::TabViewer for DragonSlayerApp {
+    type Tab = Tab;
+
+    fn id(&mut self, tab: &mut Self::Tab) -> egui::Id {
+        egui::Id::new(("dragonslayer-tab", *tab))
+    }
+
+    fn title(&mut self, tab: &mut Self::Tab) -> egui::WidgetText {
+        use egui_phosphor::regular as ph;
+        let s = match tab {
+            Tab::Scenes => format!("{}  Scenes", ph::FILM_STRIP),
+            Tab::Viewer => format!("{}  Viewer", ph::IMAGE_SQUARE),
+            Tab::Timeline => format!("{}  Timeline", ph::LIST_BULLETS),
+            Tab::Camera => format!("{}  Camera", ph::CAMERA),
+            Tab::Onion => format!("{}  Onion Skin", ph::STACK),
+            Tab::Export => format!("{}  Export", ph::EXPORT),
+        };
+        s.into()
+    }
+
+    fn ui(&mut self, ui: &mut egui::Ui, tab: &mut Self::Tab) {
+        match tab {
+            Tab::Scenes => self.tab_scenes(ui),
+            Tab::Viewer => self.viewer(ui),
+            Tab::Timeline => self.tab_timeline(ui),
+            Tab::Camera => self.tab_camera(ui),
+            Tab::Onion => self.tab_onion(ui),
+            Tab::Export => self.tab_export(ui),
+        }
+    }
+
+    fn is_closeable(&self, _tab: &Self::Tab) -> bool {
+        // Users can drag/rearrange but not close (no reopen UI yet).
+        false
+    }
+
+    fn clear_background(&self, tab: &Self::Tab) -> bool {
+        // We paint our own background inside the Viewer tab.
+        *tab != Tab::Viewer
+    }
+}
+
 impl eframe::App for DragonSlayerApp {
     fn raw_input_hook(&mut self, _ctx: &egui::Context, raw: &mut egui::RawInput) {
         self.take_shortcuts(raw);
@@ -1942,22 +2143,15 @@ impl eframe::App for DragonSlayerApp {
             return;
         }
 
-        egui::Panel::left("nav")
-            .resizable(true)
-            .default_size(240.0)
-            .min_size(200.0)
-            .show(ui, |ui| self.nav_panel(ui));
-        egui::Panel::right("settings")
-            .resizable(true)
-            .default_size(300.0)
-            .min_size(260.0)
-            .show(ui, |ui| self.settings_panel(ui));
-        egui::Panel::bottom("timeline")
-            .resizable(true)
-            .default_size(140.0)
-            .min_size(90.0)
-            .show(ui, |ui| self.timeline_panel(ui));
-        egui::CentralPanel::default().frame(egui::Frame::NONE).show(ui, |ui| self.viewer(ui));
+        // Real dockable panels. Users can drag tabs into new groups, resize the
+        // splits, or drop a tab back to reset. Layout persists for the session.
+        let mut dock = std::mem::replace(&mut self.dock_state, DockState::new(vec![]));
+        egui::CentralPanel::default().frame(egui::Frame::NONE).show(ui, |ui| {
+            DockArea::new(&mut dock)
+                .style(egui_dock::Style::from_egui(ui.style()))
+                .show_inside(ui, self);
+        });
+        self.dock_state = dock;
 
         self.compile_window(&ctx);
         self.help_window(&ctx);
