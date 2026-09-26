@@ -7,6 +7,13 @@
 </p>
 
 <p align="center">
+  <b>Status:</b> 0.1.0-beta &nbsp;·&nbsp;
+  <b>Licence:</b> MIT &nbsp;·&nbsp;
+  <b>Support:</b> none (community only)
+</p>
+
+<p align="center">
+  <a href="#-disclaimer">Disclaimer</a> ·
   <a href="#quick-start">Quick start</a> ·
   <a href="#features">Features</a> ·
   <a href="#supported-cameras">Cameras</a> ·
@@ -14,6 +21,22 @@
   <a href="#project-format">Project format</a> ·
   <a href="#contributing">Contributing</a>
 </p>
+
+---
+
+## ⚠ Disclaimer
+
+**DragonSlayer is free, open-source hobby software. It is provided "as is", with no warranty of any kind — express or implied. Use it entirely at your own risk.**
+
+By using this software you accept that:
+
+- The authors and contributors are **not liable** for any lost footage, damaged files, missed shots, corrupt SD cards, wedged cameras, missed deadlines, delayed productions, or any other direct, indirect, incidental, special, exemplary or consequential damages arising from use or misuse of this software. See [LICENSE](LICENSE) for the full legal wording.
+- **Nothing here is professionally supported.** There is no help desk. There is no SLA. There is no roadmap you can rely on. Bug fixes happen when someone in the community writes them.
+- **This is a BETA.** Features may change, break, or disappear. The on-disk project format should stay compatible across versions, but that is not a guarantee.
+- **For anything mission-critical** — a paid gig, an assessed project, an irreplaceable shot — back up frequently, keep the camera card, and consider using established commercial software (Dragonframe, Stop Motion Studio Pro, iStopMotion) as well or instead.
+- **Camera firmware, USB drivers and OS updates** can break tethering in ways outside this project's control. If your camera stops responding, the fix is almost always to power-cycle it.
+- **The bundled Zadig helper** (Windows only) installs a WinUSB driver on the camera's USB port. This is a Windows setting change, not a camera modification, and can be undone in Device Manager. While active, the Windows Photos app and vendor tools will not see the camera.
+- **If you don't agree to any of this, don't use the software.** Delete it, keep your camera card, and have a nice day.
 
 ---
 
@@ -195,7 +218,7 @@ The camera trait is designed so a future WPD (Windows Portable Devices) backend 
 
 ## Licence
 
-To be finalised — either Apache-2.0 or GPL-3.0. libgphoto2 is LGPL-2.1+ and dynamically linked.
+MIT — see [LICENSE](LICENSE). libgphoto2 is LGPL-2.1+ and dynamically linked. Zadig / libwdi (Windows bundle only) are LGPL-3.0.
 
 ## Credits
 

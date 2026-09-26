@@ -344,6 +344,7 @@ impl DragonSlayerApp {
     fn top_bar(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             ui.heading("DragonSlayer");
+            ui.label(RichText::new(concat!("v", env!("CARGO_PKG_VERSION"))).small().color(ui.visuals().weak_text_color()));
             if let Some(p) = &self.project {
                 ui.separator();
                 ui.label(RichText::new(p.name()).strong());
@@ -1071,9 +1072,45 @@ fn help_content(ui: &mut egui::Ui, os: HelpOs) {
         folders next to them, never destroyed. journal.ndjson records every capture and \
         delete so the frame order can be rebuilt from disk.");
 
-    h(ui, "License and source");
-    p(ui, "DragonSlayer is free and open source. Report bugs, ask for cameras to be added, or \
-        contribute: it's hosted on GitLab (see the project README).");
+    h(ui, "About this build");
+    p(ui, &format!(
+        "DragonSlayer v{}. Free and open source. Report bugs, ask for cameras to be added, \
+        or contribute at https://github.com/TheMagnificentRonnie/DragonSlayer",
+        env!("CARGO_PKG_VERSION")
+    ));
+
+    h(ui, "Disclaimer — please read");
+    ui.label(
+        RichText::new(
+            "DragonSlayer is free, open-source hobby software. It is provided \"as is\", \
+             with no warranty of any kind — express or implied — including but not limited \
+             to fitness for purpose, merchantability, or non-infringement. Use it entirely \
+             at your own risk.",
+        )
+        .strong(),
+    );
+    ui.add_space(4.0);
+    p(ui, "By using this software you accept that:");
+    p(ui, "· The authors and contributors are not liable for any lost footage, damaged \
+        files, missed shots, corrupt SD cards, wedged cameras, missed deadlines, delayed \
+        productions, or any other direct, indirect, incidental, special, exemplary or \
+        consequential damages arising from use or misuse of this software.");
+    p(ui, "· Nothing about DragonSlayer is professionally supported. There is no help \
+        desk. There is no SLA. Bug fixes happen when someone in the community writes them.");
+    p(ui, "· This is a BETA. Features may change, break, or disappear. The project format \
+        should stay compatible, but that is not a guarantee.");
+    p(ui, "· For anything mission-critical — a paid gig, an assessed project, an \
+        irreplaceable shot — back up frequently, keep the camera card, and consider \
+        using established commercial software as well or instead.");
+    p(ui, "· Camera firmware, USB drivers and OS updates can break tethering in ways \
+        outside this project's control. If your camera stops responding, the fix is \
+        usually to power-cycle it (see Troubleshooting → wedged camera above).");
+    p(ui, "· The bundled Zadig helper installs a WinUSB driver on Windows. This is a \
+        Windows setting change, not a camera modification, and can be undone in Device \
+        Manager. While active, the Windows Photos app and vendor tools will not see the \
+        camera.");
+    p(ui, "· If you don't agree to any of this, don't use the software. Delete it, \
+        keep your camera card, and have a nice day.");
     ui.add_space(12.0);
 }
 

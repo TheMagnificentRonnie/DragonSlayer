@@ -1,0 +1,56 @@
+MIT License
+
+Copyright (c) 2026 TheMagnificentRonnie and DragonSlayer contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+## Third-party components
+
+DragonSlayer dynamically links or bundles the following third-party components,
+each under its own licence:
+
+- **libgphoto2** — LGPL-2.1+ (http://gphoto.org)
+- **libusb** — LGPL-2.1+ (https://libusb.info)
+- **ffmpeg** — LGPL / GPL depending on build (https://ffmpeg.org). DragonSlayer
+  invokes ffmpeg as an external process; it is not statically linked.
+- **Zadig / libwdi** — LGPL-3.0 (https://zadig.akeo.ie, https://github.com/pbatard/libwdi).
+  Bundled unmodified in the Windows release; used only for the one-time WinUSB
+  driver installation on the user's own machine.
+- **egui, eframe, wgpu** — MIT / Apache-2.0 dual (https://github.com/emilk/egui)
+- **image** — MIT / Apache-2.0 dual (https://github.com/image-rs/image)
+- **serde, tokio, clap, thiserror** and other Rust crates — MIT / Apache-2.0
+  as declared in their respective `Cargo.toml` files. Full list produced by
+  `cargo tree` on a release build.
+
+## No warranty, no support
+
+The MIT terms above are the operative legal statement.
+In plain English:
+
+- Use it however you like.
+- Fork it, sell it (there's nothing to sell), modify it, ship it inside
+  something else — you don't need to ask.
+- Keep the copyright and licence notice.
+- If it eats your homework, that's on you.
+
+There is no support, no guaranteed response to bug reports, no roadmap and no
+SLA. The maintainers work on this in their own time and may stop at any
+moment. If you need something reliable and supported, buy commercial software.
