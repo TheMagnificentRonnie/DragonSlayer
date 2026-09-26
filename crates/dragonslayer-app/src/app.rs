@@ -877,52 +877,88 @@ impl DragonSlayerApp {
         let _ = showing_live;
         overlay(ui, rect, &scene_label, &mode_label);
 
-        // Picture-in-picture: always show the "other" view in the top-right corner.
-        // If we're on live, PIP is the last captured frame — line up the next shot
-        // while looking at where you were. If we're on a frame or playing back, PIP
-        // is the live view. Click the PIP to swap the two.
-        let (pip_tex, pip_label, pip_dot, pip_border, swap_target) = if self.viewer.is_live() {
-            // Live main → last frame in the PIP
-            let last_idx = self.frames.len().checked_sub(1);
-            let tex = last_idx
-                .and_then(|i| self.frames.get(i).and_then(|f| f.jpeg()).and_then(|p| self.images.get(p, 320)));
-            let label = last_idx.map(|i| format!("FRAME {}", i + 1)).unwrap_or_else(|| "NO FRAMES YET".into());
-            (
-                tex,
-                label,
-                Color32::from_rgb(80, 170, 250),
-                Color32::from_rgb(80, 170, 250),
-                last_idx.map(ViewerState::Frame),
-            )
+        // Picture-in-picture: always show the "other" view in the top-right corner —
+        // unless that would duplicate what the main viewer is already showing
+        // (e.g. no live feed → main falls back to last frame → PIP would repeat it).
+        let main_is_live_feed = self.viewer.is_live() && self.live.is_some();
+        let main_frame_idx: Option<usize> = if !self.viewer.is_live() {
+            self.viewer.frame_index()
+        } else if self.live.is_none() {
+            // Main fell back to last frame.
+            self.frames.len().checked_sub(1)
         } else {
-            // Frame/Playing main → live view in the PIP
-            let tex = self.live.clone();
-            (
-                tex,
-                "LIVE".to_string(),
-                Color32::from_rgb(230, 60, 60),
-                Color32::from_rgb(230, 90, 90),
-                Some(ViewerState::Live),
-            )
+            None
         };
 
-        if let Some(tex) = pip_tex {
+        let (pip_tex, pip_label, pip_dot, pip_border, swap_target, want_pip) =
+            if self.viewer.is_live() {
+                // Live main → last frame in the PIP (but only if main is a real live
+                // feed; otherwise main is already showing the last frame).
+                let last_idx = self.frames.len().checked_sub(1);
+                let show = main_is_live_feed && last_idx.is_some();
+                let tex = last_idx
+                    .and_then(|i| self.frames.get(i).and_then(|f| f.jpeg()).and_then(|p| self.images.get(p, 320)));
+                let label = last_idx.map(|i| format!("FRAME {}", i + 1)).unwrap_or_else(|| "NO FRAMES YET".into());
+                (
+                    tex,
+                    label,
+                    Color32::from_rgb(80, 170, 250),
+                    Color32::from_rgb(80, 170, 250),
+                    last_idx.map(ViewerState::Frame),
+                    show,
+                )
+            } else {
+                // Frame/Playing main → live view in the PIP. Skip if the live texture
+                // is missing AND the main isn't a frame we'd swap FROM (i.e. no camera).
+                let show = self.live.is_some() && Some(main_frame_idx.unwrap_or(usize::MAX)) != Some(usize::MAX);
+                (
+                    self.live.clone(),
+                    "LIVE".to_string(),
+                    Color32::from_rgb(230, 60, 60),
+                    Color32::from_rgb(230, 90, 90),
+                    Some(ViewerState::Live),
+                    show,
+                )
+            };
+        let placeholder = want_pip;
+
+        // Always draw PIP if there's something meaningful to show (a frame exists or
+        // live is available). Placeholder rendered while texture loads.
+        if placeholder {
             let pip_w = (area.width() * 0.22).clamp(180.0, 320.0);
-            let tex_size = tex.size_vec2();
-            let aspect = if tex_size.x > 0.0 { tex_size.y / tex_size.x } else { 0.5625 };
-            let pip_h = pip_w * aspect;
+            let pip_h = pip_w * 0.5625; // 16:9 placeholder aspect
+            let (pip_h, aspect_source) = match &pip_tex {
+                Some(t) => {
+                    let size = t.size_vec2();
+                    let a = if size.x > 0.0 { size.y / size.x } else { 0.5625 };
+                    (pip_w * a, Some(a))
+                }
+                None => (pip_h, None),
+            };
+            let _ = aspect_source;
             let margin = 12.0;
             let pip_rect = Rect::from_min_size(
                 egui::pos2(rect.right() - pip_w - margin, rect.top() + margin),
                 Vec2::new(pip_w, pip_h),
             );
-            painter.rect_filled(pip_rect.expand(4.0), 4.0, Color32::from_black_alpha(180));
-            painter.image(
-                tex.id(),
-                pip_rect,
-                Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
-                Color32::WHITE,
-            );
+            painter.rect_filled(pip_rect.expand(4.0), 4.0, Color32::from_black_alpha(200));
+            painter.rect_filled(pip_rect, 3.0, Color32::from_gray(30));
+            if let Some(tex) = &pip_tex {
+                painter.image(
+                    tex.id(),
+                    pip_rect,
+                    Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                    Color32::WHITE,
+                );
+            } else {
+                painter.text(
+                    pip_rect.center(),
+                    Align2::CENTER_CENTER,
+                    "loading…",
+                    FontId::proportional(14.0),
+                    Color32::from_gray(160),
+                );
+            }
             painter.rect_stroke(pip_rect, 3.0, Stroke::new(1.5, pip_border), egui::epaint::StrokeKind::Outside);
             let dot = pip_rect.left_top() + Vec2::new(10.0, 10.0);
             painter.circle_filled(dot, 4.0, pip_dot);
@@ -943,6 +979,7 @@ impl DragonSlayerApp {
             if let Some(target) = swap_target {
                 let resp = ui.interact(pip_rect, egui::Id::new("pip swap"), Sense::click());
                 if resp.clicked() {
+                    log_line(&format!("PIP clicked → swap to {target:?}"));
                     self.viewer = target;
                 }
                 if resp.hovered() {
