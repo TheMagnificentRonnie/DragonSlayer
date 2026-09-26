@@ -1,0 +1,24 @@
+[package]
+name = "dragonslayer-cli"
+description = "DragonSlayer command line: the same operations as the app, for testing and scripting."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "dragonslayer"
+path = "src/main.rs"
+
+[features]
+default = []
+gphoto2 = ["dragonslayer-camera/gphoto2"]
+
+[dependencies]
+dragonslayer-core = { path = "../dragonslayer-core" }
+dragonslayer-camera = { path = "../dragonslayer-camera" }
+anyhow = { workspace = true }
+clap = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

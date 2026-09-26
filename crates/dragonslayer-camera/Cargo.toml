@@ -1,0 +1,18 @@
+[package]
+name = "dragonslayer-camera"
+description = "DragonSlayer camera interface, a mock backend and the libgphoto2 backend."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[features]
+default = []
+# Needs libgphoto2 and pkg-config on the build machine; see README.
+gphoto2 = ["dep:gphoto2", "dep:libgphoto2_sys"]
+
+[dependencies]
+thiserror = { workspace = true }
+image = { workspace = true }
+gphoto2 = { version = "3", optional = true }
+libgphoto2_sys = { version = "1.2", optional = true }

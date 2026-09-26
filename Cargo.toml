@@ -1,0 +1,25 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/dragonslayer-core",
+    "crates/dragonslayer-camera",
+    "crates/dragonslayer-cli",
+    "crates/dragonslayer-app",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+publish = false
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+anyhow = "1"
+time = { version = "0.3", features = ["serde", "formatting", "parsing", "macros", "local-offset"] }
+fs4 = "1"
+image = { version = "0.25", default-features = false, features = ["jpeg"] }
+clap = { version = "4", features = ["derive"] }
+tempfile = "3"
