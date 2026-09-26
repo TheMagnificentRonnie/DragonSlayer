@@ -877,15 +877,39 @@ impl DragonSlayerApp {
         let _ = showing_live;
         overlay(ui, rect, &scene_label, &mode_label);
 
-        // Picture-in-picture live view: when reviewing a captured frame or playing back,
-        // keep the camera's live feed visible in the corner so the animator can line up
-        // the next shot while looking at the last one.
-        if !self.viewer.is_live()
-            && let Some(live) = &self.live
-        {
+        // Picture-in-picture: always show the "other" view in the top-right corner.
+        // If we're on live, PIP is the last captured frame — line up the next shot
+        // while looking at where you were. If we're on a frame or playing back, PIP
+        // is the live view. Click the PIP to swap the two.
+        let (pip_tex, pip_label, pip_dot, pip_border, swap_target) = if self.viewer.is_live() {
+            // Live main → last frame in the PIP
+            let last_idx = self.frames.len().checked_sub(1);
+            let tex = last_idx
+                .and_then(|i| self.frames.get(i).and_then(|f| f.jpeg()).and_then(|p| self.images.get(p, 320)));
+            let label = last_idx.map(|i| format!("FRAME {}", i + 1)).unwrap_or_else(|| "NO FRAMES YET".into());
+            (
+                tex,
+                label,
+                Color32::from_rgb(80, 170, 250),
+                Color32::from_rgb(80, 170, 250),
+                last_idx.map(ViewerState::Frame),
+            )
+        } else {
+            // Frame/Playing main → live view in the PIP
+            let tex = self.live.clone();
+            (
+                tex,
+                "LIVE".to_string(),
+                Color32::from_rgb(230, 60, 60),
+                Color32::from_rgb(230, 90, 90),
+                Some(ViewerState::Live),
+            )
+        };
+
+        if let Some(tex) = pip_tex {
             let pip_w = (area.width() * 0.22).clamp(180.0, 320.0);
-            let live_size = live.size_vec2();
-            let aspect = if live_size.x > 0.0 { live_size.y / live_size.x } else { 0.5625 };
+            let tex_size = tex.size_vec2();
+            let aspect = if tex_size.x > 0.0 { tex_size.y / tex_size.x } else { 0.5625 };
             let pip_h = pip_w * aspect;
             let margin = 12.0;
             let pip_rect = Rect::from_min_size(
@@ -894,23 +918,18 @@ impl DragonSlayerApp {
             );
             painter.rect_filled(pip_rect.expand(4.0), 4.0, Color32::from_black_alpha(180));
             painter.image(
-                live.id(),
+                tex.id(),
                 pip_rect,
                 Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
                 Color32::WHITE,
             );
-            painter.rect_stroke(
-                pip_rect,
-                3.0,
-                Stroke::new(1.5, Color32::from_rgb(230, 90, 90)),
-                egui::epaint::StrokeKind::Outside,
-            );
+            painter.rect_stroke(pip_rect, 3.0, Stroke::new(1.5, pip_border), egui::epaint::StrokeKind::Outside);
             let dot = pip_rect.left_top() + Vec2::new(10.0, 10.0);
-            painter.circle_filled(dot, 4.0, Color32::from_rgb(230, 60, 60));
+            painter.circle_filled(dot, 4.0, pip_dot);
             painter.text(
                 dot + Vec2::new(10.0, -2.0),
                 Align2::LEFT_TOP,
-                "LIVE",
+                &pip_label,
                 FontId::proportional(12.0),
                 Color32::WHITE,
             );
@@ -921,13 +940,14 @@ impl DragonSlayerApp {
                 FontId::proportional(10.0),
                 Color32::from_white_alpha(180),
             );
-            // Click the PIP to swap the main viewer back to live.
-            let resp = ui.interact(pip_rect, egui::Id::new("live pip"), Sense::click());
-            if resp.clicked() {
-                self.viewer = ViewerState::Live;
-            }
-            if resp.hovered() {
-                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+            if let Some(target) = swap_target {
+                let resp = ui.interact(pip_rect, egui::Id::new("pip swap"), Sense::click());
+                if resp.clicked() {
+                    self.viewer = target;
+                }
+                if resp.hovered() {
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                }
             }
         }
 
