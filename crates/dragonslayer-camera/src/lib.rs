@@ -1,10 +1,7 @@
 //! Camera interface (spec §7) and backends.
 //!
-//! Backends: [`mock::MockBackend`] (always available, used by tests and demos),
-//! `gphoto::GphotoBackend` behind the `gphoto2` feature (DSLR / mirrorless
-//! bodies via libgphoto2), and `webcam::WebcamBackend` behind the `webcam`
-//! feature (UVC cameras including laptop webcams, HDMI capture cards, and
-//! Android phones running in USB webcam mode).
+//! Backends: [`mock::MockBackend`] (always available, used by tests and demos) and
+//! `gphoto::GphotoBackend` behind the `gphoto2` feature.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -15,11 +12,6 @@ use std::time::Duration;
 pub mod mock;
 #[cfg(feature = "gphoto2")]
 pub mod gphoto;
-#[cfg(feature = "webcam")]
-pub mod webcam;
-
-mod multi;
-pub use multi::MultiBackend;
 
 pub type Result<T> = std::result::Result<T, CameraError>;
 
@@ -210,19 +202,9 @@ pub fn live_view_channel() -> (LiveViewSender, LiveViewStream) {
 }
 
 /// The default real-camera backend for this build, if one was compiled in.
-/// The real-camera backend for this build. Composes every compile-time-enabled
-/// backend into a single [`MultiBackend`], so DSLRs (libgphoto2) and UVC
-/// webcams (nokhwa) both show up in `stopgap cameras`. Returns `None` in a
-/// mock-only build.
 pub fn default_backend() -> Option<Box<dyn CameraBackend>> {
-    let mut backends: Vec<Box<dyn CameraBackend>> = Vec::new();
     #[cfg(feature = "gphoto2")]
-    backends.push(Box::new(gphoto::GphotoBackend));
-    #[cfg(feature = "webcam")]
-    backends.push(Box::new(webcam::WebcamBackend));
-    if backends.is_empty() {
-        None
-    } else {
-        Some(Box::new(MultiBackend::new(backends)))
-    }
+    return Some(Box::new(gphoto::GphotoBackend));
+    #[cfg(not(feature = "gphoto2"))]
+    None
 }
