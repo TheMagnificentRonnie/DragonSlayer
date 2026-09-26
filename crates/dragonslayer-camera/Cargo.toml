@@ -16,3 +16,6 @@ thiserror = { workspace = true }
 image = { workspace = true }
 gphoto2 = { version = "3", optional = true }
 libgphoto2_sys = { version = "1.2", optional = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

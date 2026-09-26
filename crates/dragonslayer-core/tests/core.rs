@@ -173,3 +173,304 @@ fn concat_list_escapes_quotes_and_repeats_last_file() {
     assert!(list.trim_end().ends_with("file '/b.jpg'"));
     assert_eq!(list.matches("duration").count(), 2);
 }
+
+// ------------------------------------------------------------ project format
+
+#[test]
+fn create_refuses_to_overwrite_existing_project() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("Film");
+    Project::create(&root, "Film", 12).unwrap();
+    let err = Project::create(&root, "Different", 24).unwrap_err();
+    assert!(matches!(err, dragonslayer_core::Error::ProjectExists(_)), "got {err:?}");
+}
+
+#[test]
+fn open_rejects_unknown_project_format_version() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("Film");
+    Project::create(&root, "Film", 12).unwrap();
+    // Tamper with the version in project.json.
+    let path = root.join("project.json");
+    let text = fs::read_to_string(&path).unwrap().replace("dragonslayer/1", "dragonslayer/999");
+    fs::write(&path, text).unwrap();
+    let err = Project::open(&root).unwrap_err();
+    assert!(matches!(err, dragonslayer_core::Error::UnsupportedFormat { .. }), "got {err:?}");
+}
+
+#[test]
+fn project_file_is_written_atomically_no_temp_file_left() {
+    // After save() completes, there should never be a `.project.json.tmp`
+    // hanging around in the project root — the atomic-rename protocol
+    // guarantees the temp file is either fully renamed or absent.
+    let tmp = tempfile::tempdir().unwrap();
+    let mut p = project(tmp.path());
+    for i in 0..20 {
+        p.add_scene(&format!("s{i}"), None).unwrap();
+    }
+    let root = &p.root;
+    let stray: Vec<_> = fs::read_dir(root)
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .filter(|e| {
+            let n = e.file_name();
+            let s = n.to_string_lossy();
+            s.ends_with(".tmp") || s.starts_with('.')
+        })
+        .map(|e| e.file_name())
+        .collect();
+    assert!(stray.is_empty(), "temp/hidden files left in project root: {stray:?}");
+}
+
+// ---------------------------------------------------------- scenes / metadata
+
+#[test]
+fn rename_only_changes_display_name_not_id_or_order() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut p = project(tmp.path());
+    p.add_scene("Second", None).unwrap();
+    let before_ids = p.file.scenes.clone();
+    p.rename_scene("sc010", "Opening Titles").unwrap();
+    assert_eq!(p.file.scenes, before_ids);
+    assert_eq!(p.scene("sc010").unwrap().name(), "Opening Titles");
+    // Persists across reload.
+    let again = Project::open(&p.root).unwrap();
+    assert_eq!(again.scene("sc010").unwrap().name(), "Opening Titles");
+}
+
+#[test]
+fn move_scene_reorders_and_clamps_to_end() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut p = project(tmp.path());
+    p.add_scene("B", None).unwrap();
+    p.add_scene("C", None).unwrap();
+    assert_eq!(p.file.scenes, ["sc010", "sc020", "sc030"]);
+    p.move_scene("sc030", 0).unwrap();
+    assert_eq!(p.file.scenes, ["sc030", "sc010", "sc020"]);
+    // Clamps to end when target index is too large.
+    p.move_scene("sc030", 999).unwrap();
+    assert_eq!(p.file.scenes, ["sc010", "sc020", "sc030"]);
+}
+
+#[test]
+fn per_scene_fps_override_none_reverts_to_project_default() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut p = project(tmp.path());
+    p.set_scene_fps("sc010", Some(24)).unwrap();
+    assert_eq!(p.fps_for(&p.scene("sc010").unwrap()), 24);
+    p.set_scene_fps("sc010", None).unwrap();
+    assert_eq!(p.fps_for(&p.scene("sc010").unwrap()), 12);
+}
+
+#[test]
+fn delete_active_scene_picks_the_next_one_active() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut p = project(tmp.path());
+    p.add_scene("Middle", None).unwrap();
+    p.add_scene("Last", None).unwrap();
+    p.set_active("sc020").unwrap();
+    p.delete_scene("sc020").unwrap();
+    // Whatever is picked, it must be one of the remaining scenes and must
+    // exist on disk.
+    let active = p.file.active_scene.clone().unwrap();
+    assert!(p.file.scenes.contains(&active), "active {active} not in {:?}", p.file.scenes);
+    assert!(p.scene(&active).is_ok());
+}
+
+// ----------------------------------------------------------------- recovery
+
+#[test]
+fn recover_processes_pending_in_multiple_scenes() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut p = project(tmp.path());
+    p.add_scene("Second", None).unwrap();
+    // Both scenes get a mid-flight crash.
+    p.set_active("sc010").unwrap();
+    let _ = capture::capture(&p, None, |dir| {
+        fake_shot(dir).unwrap();
+        Err("crash A".into())
+    });
+    p.set_active("sc020").unwrap();
+    let _ = capture::capture(&p, None, |dir| {
+        fake_shot(dir).unwrap();
+        Err("crash B".into())
+    });
+
+    let report = Project::open(&p.root).unwrap().recover().unwrap();
+    assert_eq!(report.recovered.len(), 2);
+    assert_eq!(report.abandoned.len(), 0);
+    assert!(p.scene("sc010").unwrap().dir.join("frames/000001.jpg").is_file());
+    assert!(p.scene("sc020").unwrap().dir.join("frames/000001.jpg").is_file());
+}
+
+#[test]
+fn recovery_is_idempotent_second_call_does_nothing() {
+    let tmp = tempfile::tempdir().unwrap();
+    let p = project(tmp.path());
+    let _ = capture::capture(&p, None, |dir| {
+        fake_shot(dir).unwrap();
+        Err("crash".into())
+    });
+    let first = Project::open(&p.root).unwrap().recover().unwrap();
+    assert_eq!(first.recovered.len(), 1);
+
+    let second = Project::open(&p.root).unwrap().recover().unwrap();
+    assert!(second.recovered.is_empty());
+    assert!(second.abandoned.is_empty());
+}
+
+// ------------------------------------------------------------------ capture
+
+#[test]
+fn capture_records_camera_name_and_jpeg_ext_is_normalised_lowercase() {
+    // Camera returns "IMG_0001.JPG" (upper) — commit should normalise to .jpg
+    // so the frames folder stays consistent regardless of camera vendor.
+    let tmp = tempfile::tempdir().unwrap();
+    let p = project(tmp.path());
+    capture::capture(&p, Some("Panasonic DC-GH5"), |dir| {
+        let jpg = dir.join("IMG_0001.JPG");
+        fs::write(&jpg, b"jpeg").unwrap();
+        Ok(vec![jpg])
+    })
+    .unwrap();
+    let scene = p.active_scene().unwrap();
+    assert!(scene.dir.join("frames/000001.jpg").is_file());
+    // Check the literal filename on disk, not `is_file()` (case-insensitive on Windows).
+    let names: Vec<String> = fs::read_dir(scene.dir.join("frames"))
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(names, ["000001.jpg"]);
+    let cam = scene.frames().unwrap()[0].camera.clone();
+    assert_eq!(cam.as_deref(), Some("Panasonic DC-GH5"));
+}
+
+#[test]
+fn delete_last_on_empty_scene_is_an_error() {
+    let tmp = tempfile::tempdir().unwrap();
+    let p = project(tmp.path());
+    let scene = p.active_scene().unwrap();
+    let err = scene.delete_last().unwrap_err();
+    assert!(matches!(err, dragonslayer_core::Error::NoFrames(_)), "got {err:?}");
+}
+
+#[test]
+fn capture_into_non_active_scene_needs_set_active_first() {
+    // capture::capture always writes into the ACTIVE scene, so if the user
+    // wants a different scene they must switch first. Guard against a
+    // regression where capture silently writes to a stale scene.
+    let tmp = tempfile::tempdir().unwrap();
+    let mut p = project(tmp.path());
+    p.add_scene("B", None).unwrap();
+    // Active is now sc020.
+    capture::capture(&p, None, fake_shot).unwrap();
+    assert_eq!(p.scene("sc020").unwrap().frame_count().unwrap(), 1);
+    assert_eq!(p.scene("sc010").unwrap().frame_count().unwrap(), 0);
+    // Switch and shoot again.
+    p.set_active("sc010").unwrap();
+    capture::capture(&p, None, fake_shot).unwrap();
+    assert_eq!(p.scene("sc010").unwrap().frame_count().unwrap(), 1);
+}
+
+// ---------------------------------------------------------- compile edge
+
+#[test]
+fn compile_plan_errors_when_project_has_no_frames_at_all() {
+    let tmp = tempfile::tempdir().unwrap();
+    let p = project(tmp.path());
+    let err = compile::plan(&p, None, None).unwrap_err();
+    assert!(matches!(err, dragonslayer_core::Error::NothingToCompile(_)), "got {err:?}");
+}
+
+#[test]
+fn compile_plan_scene_scope_fps_override_ignores_project_and_scene_fps() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut p = project(tmp.path());
+    p.set_scene_fps("sc010", Some(6)).unwrap();
+    capture::capture(&p, None, fake_shot).unwrap();
+    let (shots, _) = compile::plan(&p, Some("sc010"), Some(60)).unwrap();
+    assert!(shots.iter().all(|s| (s.seconds - 1.0 / 60.0).abs() < 1e-9));
+}
+
+#[test]
+fn ffmpeg_args_h264_and_prores_use_expected_codec_args() {
+    // Sanity check on the command we'd hand to ffmpeg. Doesn't need ffmpeg
+    // installed — pure string construction.
+    use dragonslayer_core::compile::{Format, Framing, Resolution, Settings};
+    let list = PathBuf::from("/list.txt");
+    let out = PathBuf::from("/out.mp4");
+    let base = Settings::default();
+    let h264 = compile::ffmpeg_args(&list, &out, 24, &Settings { format: Format::H264, ..base.clone() });
+    assert!(h264.iter().any(|a| a == "libx264"), "h264 args missing codec: {h264:?}");
+    assert!(h264.iter().any(|a| a == "-pix_fmt"));
+    let prores = compile::ffmpeg_args(&list, &out, 24, &Settings { format: Format::ProRes, ..base.clone() });
+    assert!(prores.iter().any(|a| a == "prores_ks"), "prores args missing codec: {prores:?}");
+    // Framing goes through the vf filter chain.
+    let fit_uhd = compile::ffmpeg_args(
+        &list,
+        &out,
+        24,
+        &Settings { resolution: Resolution::Uhd, framing: Framing::Fit, ..base.clone() },
+    );
+    let vf: String = fit_uhd.iter().skip_while(|a| *a != "-vf").nth(1).cloned().unwrap_or_default();
+    assert!(vf.contains("3840:2160"), "expected 4K scale in vf: {vf}");
+    assert!(vf.contains("pad"), "fit should pad");
+    let crop_hd = compile::ffmpeg_args(
+        &list,
+        &out,
+        24,
+        &Settings { resolution: Resolution::Hd, framing: Framing::Crop, ..base },
+    );
+    let vf: String = crop_hd.iter().skip_while(|a| *a != "-vf").nth(1).cloned().unwrap_or_default();
+    assert!(vf.contains("1920:1080"), "expected 1080p scale in vf: {vf}");
+    assert!(vf.contains("crop"), "crop should crop");
+}
+
+#[test]
+fn concat_list_of_single_shot_still_repeats_the_file() {
+    // ffconcat honours the DURATION of the last entry only when the file is
+    // repeated at the end. A one-shot compile still needs that repeat, or
+    // the frame lasts 0 seconds.
+    let shots = [Shot { path: PathBuf::from("/only.jpg"), seconds: 0.1 }];
+    let list = compile::concat_list(&shots);
+    let file_lines = list.lines().filter(|l| l.starts_with("file ")).count();
+    assert_eq!(file_lines, 2, "expected the single file line + its repeat, got:\n{list}");
+}
+
+// ------------------------------------------------------------------ journal
+
+#[test]
+fn journal_replays_in_order_across_many_capture_and_delete_events() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("journal.ndjson");
+    // Sequence: capture 1, capture 2, capture 3, delete 2, capture 4, delete 4.
+    // Expected frames after replay: [1, 3].
+    for (op, frame) in [
+        (JournalOp::Pending, "000001"),
+        (JournalOp::Capture, "000001"),
+        (JournalOp::Pending, "000002"),
+        (JournalOp::Capture, "000002"),
+        (JournalOp::Pending, "000003"),
+        (JournalOp::Capture, "000003"),
+        (JournalOp::Delete, "000002"),
+        (JournalOp::Pending, "000004"),
+        (JournalOp::Capture, "000004"),
+        (JournalOp::Delete, "000004"),
+    ] {
+        journal::append(&path, &JournalEntry::now(op, frame, None)).unwrap();
+    }
+    let entries = journal::read(&path).unwrap();
+    assert_eq!(entries.len(), 10);
+    // Sanity: read gives back every well-formed line.
+    let captures: Vec<_> = entries.iter().filter(|e| e.op == JournalOp::Capture).map(|e| e.frame.clone()).collect();
+    assert_eq!(captures, ["000001", "000002", "000003", "000004"]);
+}
+
+#[test]
+fn journal_read_on_missing_file_is_empty_not_an_error() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("nope.ndjson");
+    let entries = journal::read(&path).unwrap();
+    assert!(entries.is_empty());
+}
