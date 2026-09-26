@@ -457,7 +457,9 @@ impl DragonSlayerApp {
 
     /// Advance the playback cursor by one frame if the fps interval has passed.
     fn tick_playback(&mut self) {
-        let Mode::Preview { index, last_advance, .. } = self.mode else { return };
+        // Only advance while actually playing. Bug from an earlier refactor was matching
+        // any Preview state here, which auto-advanced frames after every keypress.
+        let Mode::Preview { index, last_advance, playing: true } = self.mode else { return };
         if self.frames.is_empty() {
             self.mode = Mode::AddFrames;
             return;
