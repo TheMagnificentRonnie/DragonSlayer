@@ -67,7 +67,9 @@ pub struct DragonSlayerApp {
     session: Session,
     status: Status,
     live: Option<TextureHandle>,
-    show_live: bool,
+    viewer: ViewerState,
+    /// Wall-clock time of the last playback frame advance; also used as a repaint anchor.
+    playback_tick: Instant,
     capturing: bool,
 
     onion_on: bool,
@@ -92,6 +94,34 @@ enum HelpOs {
     Mac,
 }
 
+/// What the viewer is showing.
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum ViewerState {
+    /// Live view from the camera (or "no live view" placeholder if not available).
+    Live,
+    /// A specific captured frame from the active scene, by index.
+    Frame(usize),
+    /// Playing frames back at the scene's fps. `index` is the current frame,
+    /// `last_advance` is when we last moved forward.
+    Playing { index: usize, last_advance: Instant },
+}
+
+impl ViewerState {
+    fn is_live(self) -> bool {
+        matches!(self, ViewerState::Live)
+    }
+    fn is_playing(self) -> bool {
+        matches!(self, ViewerState::Playing { .. })
+    }
+    /// The frame index the viewer is anchored to, if any.
+    fn frame_index(self) -> Option<usize> {
+        match self {
+            ViewerState::Live => None,
+            ViewerState::Frame(i) | ViewerState::Playing { index: i, .. } => Some(i),
+        }
+    }
+}
+
 impl DragonSlayerApp {
     pub fn new(
         cc: &eframe::CreationContext<'_>,
@@ -112,7 +142,8 @@ impl DragonSlayerApp {
             session: Session::start(backend, ctx.clone()),
             status: Status::Searching,
             live: None,
-            show_live: true,
+            viewer: ViewerState::Live,
+            playback_tick: Instant::now(),
             capturing: false,
             onion_on: true,
             onion_count: 1,
@@ -306,21 +337,48 @@ impl DragonSlayerApp {
         if !self.shortcuts_active() {
             return;
         }
-        const KEYS: [Key; 5] = [Key::Space, Key::Backspace, Key::O, Key::Tab, Key::H];
+        // Keys we handle ourselves. Arrow keys and Home/End are navigation.
+        const KEYS: [Key; 11] = [
+            Key::Space, Key::Backspace, Key::O, Key::Tab, Key::H, Key::P,
+            Key::ArrowLeft, Key::ArrowRight, Key::Home, Key::End, Key::Escape,
+        ];
         let mut pressed = Vec::new();
+        // With Shift for coarser navigation.
+        let mut pressed_shift = Vec::new();
         raw.events.retain(|e| match e {
-            egui::Event::Key { key, pressed: down, repeat, modifiers, .. }
-                if KEYS.contains(key) && modifiers.is_none() =>
-            {
-                if *down && !*repeat {
-                    pressed.push(*key);
+            egui::Event::Key { key, pressed: down, repeat, modifiers, .. } if KEYS.contains(key) => {
+                let plain = modifiers.is_none();
+                let shift_only = modifiers.shift && !modifiers.ctrl && !modifiers.alt && !modifiers.command;
+                if (plain || shift_only) && *down {
+                    // Let arrow keys auto-repeat while held so scrubbing feels natural;
+                    // everything else fires once per press.
+                    let allow_repeat = matches!(key, Key::ArrowLeft | Key::ArrowRight);
+                    if !*repeat || allow_repeat {
+                        if shift_only {
+                            pressed_shift.push(*key);
+                        } else {
+                            pressed.push(*key);
+                        }
+                    }
+                    false
+                } else {
+                    true
                 }
-                false
             }
-            egui::Event::Text(t) => !matches!(t.as_str(), " " | "o" | "O" | "h" | "H"),
+            egui::Event::Text(t) => !matches!(t.as_str(), " " | "o" | "O" | "h" | "H" | "p" | "P"),
             _ => true,
         });
         self.keys.extend(pressed);
+        // Shift+arrow → coarser step; we tag by pushing a sentinel None-encoding via a separate field
+        // would need more scaffolding; simplest is to push the arrow multiple times.
+        for k in pressed_shift {
+            match k {
+                Key::ArrowLeft | Key::ArrowRight => {
+                    for _ in 0..10 { self.keys.push(k); }
+                }
+                _ => self.keys.push(k),
+            }
+        }
     }
 
     fn handle_keys(&mut self) {
@@ -329,14 +387,108 @@ impl DragonSlayerApp {
                 Key::Space => self.capture(),
                 Key::Backspace => self.delete_last(),
                 Key::O => self.onion_on = !self.onion_on,
-                Key::Tab => self.show_live = !self.show_live,
-                Key::H => {
-                    log_line(&format!("H pressed; help_open was {}, now toggling", self.help_open));
-                    self.help_open = !self.help_open;
-                }
+                Key::Tab => self.toggle_live_last(),
+                Key::H => self.help_open = !self.help_open,
+                Key::P => self.toggle_play(),
+                Key::ArrowLeft => self.step(-1),
+                Key::ArrowRight => self.step(1),
+                Key::Home => self.jump_to(Some(0)),
+                Key::End => self.jump_to_end(),
+                Key::Escape => self.viewer = ViewerState::Live,
                 _ => {}
             }
         }
+    }
+
+    // ---- navigator ------------------------------------------------------
+
+    /// Ctrl-Tab-style toggle between live view and the last captured frame.
+    fn toggle_live_last(&mut self) {
+        self.viewer = match self.viewer {
+            ViewerState::Live => match self.frames.len().checked_sub(1) {
+                Some(i) => ViewerState::Frame(i),
+                None => ViewerState::Live,
+            },
+            _ => ViewerState::Live,
+        };
+    }
+
+    fn step(&mut self, delta: i32) {
+        if self.frames.is_empty() {
+            return;
+        }
+        let last = self.frames.len() - 1;
+        let current = self.viewer.frame_index().unwrap_or(last);
+        let next = (current as i64 + delta as i64).clamp(0, last as i64) as usize;
+        self.viewer = ViewerState::Frame(next);
+    }
+
+    fn jump_to(&mut self, idx: Option<usize>) {
+        if self.frames.is_empty() {
+            return;
+        }
+        let last = self.frames.len() - 1;
+        let target = idx.unwrap_or(last).min(last);
+        self.viewer = ViewerState::Frame(target);
+    }
+
+    fn jump_to_end(&mut self) {
+        if self.frames.is_empty() {
+            return;
+        }
+        self.viewer = ViewerState::Frame(self.frames.len() - 1);
+    }
+
+    fn toggle_play(&mut self) {
+        if self.frames.is_empty() {
+            return;
+        }
+        self.viewer = match self.viewer {
+            ViewerState::Playing { .. } => {
+                // Pause on the current frame.
+                let i = self.viewer.frame_index().unwrap_or(0);
+                ViewerState::Frame(i)
+            }
+            ViewerState::Live => ViewerState::Playing { index: 0, last_advance: Instant::now() },
+            ViewerState::Frame(i) => {
+                let start = if i == self.frames.len() - 1 { 0 } else { i };
+                ViewerState::Playing { index: start, last_advance: Instant::now() }
+            }
+        };
+        self.playback_tick = Instant::now();
+    }
+
+    /// Advance the playback cursor by one frame if the fps interval has passed.
+    fn tick_playback(&mut self) {
+        let ViewerState::Playing { index, last_advance } = self.viewer else { return };
+        if self.frames.is_empty() {
+            self.viewer = ViewerState::Live;
+            return;
+        }
+        let fps = self
+            .project
+            .as_ref()
+            .and_then(|p| p.active_scene().ok().map(|s| p.fps_for(&s)))
+            .unwrap_or(12)
+            .max(1);
+        let step = Duration::from_secs_f64(1.0 / f64::from(fps));
+        let elapsed = last_advance.elapsed();
+        if elapsed < step {
+            return;
+        }
+        // Handle "we fell behind by multiple frames" gracefully.
+        let steps = (elapsed.as_secs_f64() / step.as_secs_f64()).floor() as usize;
+        let next = index + steps;
+        if next >= self.frames.len() {
+            // End of scene → pause on last frame.
+            self.viewer = ViewerState::Frame(self.frames.len() - 1);
+        } else {
+            self.viewer = ViewerState::Playing {
+                index: next,
+                last_advance: last_advance + step * (steps as u32),
+            };
+        }
+        self.playback_tick = Instant::now();
     }
 
     // ---- ui -------------------------------------------------------------
@@ -582,13 +734,49 @@ impl DragonSlayerApp {
             });
 
             ui.separator();
+            // Transport controls: jump-to-start / step back / play|pause / step forward / jump-to-end,
+            // and the current frame position.
+            let count = self.frames.len();
+            let idx = self.viewer.frame_index();
+            let playing = self.viewer.is_playing();
+            let live = self.viewer.is_live();
+            let has_frames = count > 0;
+            ui.add_enabled_ui(has_frames, |ui| {
+                if ui.button("⏮").on_hover_text("Home — first frame").clicked() {
+                    self.jump_to(Some(0));
+                }
+                if ui.button("◀").on_hover_text("Left arrow — previous frame (Shift for 10)").clicked() {
+                    self.step(-1);
+                }
+                let play_label = if playing { "⏸" } else { "▶" };
+                if ui.button(play_label).on_hover_text("P — play/pause at scene fps").clicked() {
+                    self.toggle_play();
+                }
+                if ui.button("▶|").on_hover_text("Right arrow — next frame (Shift for 10)").clicked() {
+                    self.step(1);
+                }
+                if ui.button("⏭").on_hover_text("End — last frame").clicked() {
+                    self.jump_to_end();
+                }
+            });
+            ui.separator();
+            // Position readout, and a Live button so users can get back.
+            let position = if live {
+                "LIVE".to_string()
+            } else if playing {
+                format!("Playing {}/{}", idx.map(|i| i + 1).unwrap_or(0), count.max(1))
+            } else if let Some(i) = idx {
+                format!("Frame {}/{}", i + 1, count.max(1))
+            } else {
+                format!("— / {}", count)
+            };
+            ui.label(RichText::new(position).monospace());
             let live_ok = self.has_live_view();
             ui.add_enabled_ui(live_ok, |ui| {
-                ui.selectable_value(&mut self.show_live, true, "Live");
-                ui.selectable_value(&mut self.show_live, false, "Last frame");
-            })
-            .response
-            .on_hover_text("Tab");
+                if ui.selectable_label(live, "Live").on_hover_text("Esc").clicked() {
+                    self.viewer = ViewerState::Live;
+                }
+            });
 
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 if ui.button("Compile…").clicked() {
@@ -613,18 +801,31 @@ impl DragonSlayerApp {
         ui.painter().rect_filled(area, 0.0, Color32::from_gray(18));
 
         let width = self.onion_width();
-        let live = if self.show_live && self.has_live_view() { self.live.clone() } else { None };
-        let showing_live = live.is_some();
-
-        // Base image: live view, or the last captured frame.
         let n = self.frames.len();
-        let (base, onion_end) = match live {
-            Some(t) => (Some(t), n),
-            None => {
-                let last = self.frames.last().and_then(|f| f.jpeg()).map(Path::to_path_buf);
-                (last.and_then(|p| self.images.get(&p, width)), n.saturating_sub(1))
+
+        // Base image and where onion frames should end (exclusive) depend on viewer state.
+        let (base, onion_end, mode_label) = match self.viewer {
+            ViewerState::Live => {
+                let live = self.has_live_view().then(|| self.live.clone()).flatten();
+                match live {
+                    Some(t) => (Some(t), n, "LIVE".to_string()),
+                    None => {
+                        // No live view — fall back to the last captured frame as background.
+                        let last = self.frames.last().and_then(|f| f.jpeg()).map(Path::to_path_buf);
+                        (last.and_then(|p| self.images.get(&p, width)), n.saturating_sub(1), "LIVE (no feed)".to_string())
+                    }
+                }
+            }
+            ViewerState::Frame(i) => {
+                let base = self.frames.get(i).and_then(|f| f.jpeg()).and_then(|p| self.images.get(p, width));
+                (base, i, format!("FRAME {}/{}", i + 1, n.max(1)))
+            }
+            ViewerState::Playing { index, .. } => {
+                let base = self.frames.get(index).and_then(|f| f.jpeg()).and_then(|p| self.images.get(p, width));
+                (base, index, format!("PLAY {}/{}", index + 1, n.max(1)))
             }
         };
+        let showing_live = self.viewer.is_live() && self.live.is_some();
 
         // Onion frames: the N frames before the base, oldest first.
         let mut onions = Vec::new();
@@ -673,12 +874,71 @@ impl DragonSlayerApp {
             painter.image(tex.id(), rect, uv, tint);
         }
 
-        let mode = if showing_live {
-            "LIVE".to_string()
-        } else {
-            format!("LAST FRAME {}", self.frames.last().map_or("", |f| f.id.as_str()))
-        };
-        overlay(ui, rect, &scene_label, &mode);
+        let _ = showing_live;
+        overlay(ui, rect, &scene_label, &mode_label);
+    }
+
+    /// Filmstrip timeline: clickable thumbnails of the active scene's frames
+    /// with a highlighted playhead. Painted just above the controls bar.
+    fn timeline(&mut self, ui: &mut egui::Ui) {
+        let n = self.frames.len();
+        if n == 0 {
+            ui.add_space(4.0);
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("No frames yet — press Space to capture the first one").small().color(ui.visuals().weak_text_color()));
+            });
+            ui.add_space(4.0);
+            return;
+        }
+        let height = 62.0;
+        let (rect, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), height), Sense::click_and_drag());
+        let painter = ui.painter_at(rect);
+        painter.rect_filled(rect, 3.0, Color32::from_gray(24));
+
+        let thumb_w = 74.0;
+        let thumb_h = height - 10.0;
+        let gap = 4.0;
+        let stride = thumb_w + gap;
+        let visible = ((rect.width() - 8.0) / stride).floor().max(1.0) as usize;
+
+        // Centre the playhead: show a window of `visible` frames centred on the current index when possible.
+        let cur = self.viewer.frame_index().unwrap_or(n.saturating_sub(1));
+        let half = visible / 2;
+        let start = cur.saturating_sub(half).min(n.saturating_sub(visible.min(n)));
+        let end = (start + visible).min(n);
+
+        for (draw_i, i) in (start..end).enumerate() {
+            let x = rect.left() + 4.0 + draw_i as f32 * stride;
+            let r = Rect::from_min_size(egui::pos2(x, rect.top() + 5.0), Vec2::new(thumb_w, thumb_h));
+            let is_current = i == cur && !self.viewer.is_live();
+            painter.rect_filled(r, 2.0, Color32::from_gray(35));
+            if let Some(tex) = self.frames[i].jpeg().and_then(|p| self.images.get(p, 160)) {
+                let inner = fit(r.shrink(2.0), tex.size_vec2());
+                painter.image(tex.id(), inner, Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), Color32::WHITE);
+            }
+            if is_current {
+                painter.rect_stroke(r, 2.0, Stroke::new(2.0, Color32::from_rgb(80, 170, 250)), egui::epaint::StrokeKind::Outside);
+            }
+            painter.text(
+                egui::pos2(r.center().x, r.bottom() - 4.0),
+                Align2::CENTER_BOTTOM,
+                &self.frames[i].id,
+                FontId::proportional(10.0),
+                Color32::from_gray(170),
+            );
+        }
+
+        // Click to jump to a frame.
+        if resp.clicked() || resp.dragged() {
+            if let Some(p) = resp.interact_pointer_pos() {
+                let x = p.x - rect.left() - 4.0;
+                if x >= 0.0 {
+                    let draw_i = (x / stride).floor() as usize;
+                    let target = (start + draw_i).min(n - 1);
+                    self.viewer = ViewerState::Frame(target);
+                }
+            }
+        }
     }
 
     fn compile_window(&mut self, ctx: &egui::Context) {
@@ -1293,14 +1553,18 @@ impl eframe::App for DragonSlayerApp {
             self.scene_list(ui);
         });
         egui::Panel::bottom("controls").show(ui, |ui| self.controls(ui));
+        egui::Panel::bottom("timeline").show(ui, |ui| self.timeline(ui));
         egui::CentralPanel::default().frame(egui::Frame::NONE).show(ui, |ui| self.viewer(ui));
 
         self.compile_window(&ctx);
         self.help_window(&ctx);
 
-        // Keep the live view and status messages fresh.
-        if self.live.is_some() || self.capturing || self.compile.running.is_some() {
-            ctx.request_repaint_after(Duration::from_millis(33));
+        // Advance playback if we're currently playing.
+        self.tick_playback();
+
+        // Keep live view, capture spinner, compile progress and playback repainting smoothly.
+        if self.live.is_some() || self.capturing || self.compile.running.is_some() || self.viewer.is_playing() {
+            ctx.request_repaint_after(Duration::from_millis(16));
         }
     }
 }
