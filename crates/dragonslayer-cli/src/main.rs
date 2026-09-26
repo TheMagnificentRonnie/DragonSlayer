@@ -214,21 +214,6 @@ fn cameras(backend: &dyn CameraBackend) -> Result<()> {
         print_connect_help();
         return Ok(());
     }
-    // Extra breadcrumb per port scheme so the user can see which backend
-    // enumerated what — helps distinguish "libgphoto2 saw MTP but no
-    // camera" from "nokhwa found no webcams".
-    let mut usb = 0usize;
-    let mut webcam = 0usize;
-    let mut other = 0usize;
-    for d in &devices {
-        if d.port.starts_with("usb:") { usb += 1; }
-        else if d.port.starts_with("webcam:") { webcam += 1; }
-        else { other += 1; }
-    }
-    println!("Enumerated {} device(s): {} DSLR/mirrorless (usb:), {} webcam (webcam:), {} other.\n", devices.len(), usb, webcam, other);
-    if webcam == 0 {
-        println!("(no webcams enumerated — if you expected one, check Windows Settings → Privacy & security → Camera → Allow apps to access your camera, and confirm the DroidCam Client or similar has actually started the virtual webcam.)\n");
-    }
     for d in devices {
         print!("{}  [{}]", d.display_name(), d.port);
         match backend.open(&d) {

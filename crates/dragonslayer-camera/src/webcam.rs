@@ -52,40 +52,22 @@ fn map(err: nokhwa::NokhwaError) -> CameraError {
 
 impl CameraBackend for WebcamBackend {
     fn enumerate(&self) -> Result<Vec<DeviceInfo>> {
-        // Pick the OS-native backend explicitly. nokhwa's `Auto` sometimes
-        // resolves to a backend that returns nothing on Windows if the
-        // MediaFoundation path isn't primed.
-        #[cfg(target_os = "windows")]
-        let apis: &[ApiBackend] = &[ApiBackend::MediaFoundation, ApiBackend::Auto];
-        #[cfg(target_os = "macos")]
-        let apis: &[ApiBackend] = &[ApiBackend::AVFoundation, ApiBackend::Auto];
-        #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
-        let apis: &[ApiBackend] = &[ApiBackend::Video4Linux, ApiBackend::Auto];
-
-        for &api in apis {
-            match query(api) {
-                Ok(list) if !list.is_empty() => {
-                    return Ok(list
-                        .into_iter()
-                        .map(|d| {
-                            let idx = match d.index() {
-                                CameraIndex::Index(n) => n.to_string(),
-                                CameraIndex::String(s) => s.clone(),
-                            };
-                            DeviceInfo {
-                                make: String::new(),
-                                model: d.human_name().to_string(),
-                                serial: None,
-                                port: format!("{PORT_PREFIX}{idx}"),
-                            }
-                        })
-                        .collect());
+        let devices = query(ApiBackend::Auto).map_err(map)?;
+        Ok(devices
+            .into_iter()
+            .map(|d| {
+                let idx = match d.index() {
+                    CameraIndex::Index(n) => n.to_string(),
+                    CameraIndex::String(s) => s.clone(),
+                };
+                DeviceInfo {
+                    make: String::new(),
+                    model: d.human_name().to_string(),
+                    serial: None,
+                    port: format!("{PORT_PREFIX}{idx}"),
                 }
-                Ok(_) => continue,
-                Err(_) => continue,
-            }
-        }
-        Ok(Vec::new())
+            })
+            .collect())
     }
 
     fn open(&self, device: &DeviceInfo) -> Result<Box<dyn Camera>> {
