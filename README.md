@@ -42,9 +42,11 @@ By using this software you accept that:
 
 ## Why
 
-Real cameras are already sitting in classrooms, in kids' hands and in student kit bags — but the software to *tether* them for stop-motion (Dragonframe, Stop Motion Studio Pro, iStopMotion) costs money students don't have. Phones already have free apps. Real cameras do not.
+My teenage daughter has a Panasonic Lumix GH5 — a proper camera, saved up for over ages — and a head full of stop-motion ideas. The software that would let her tether that camera to her computer (Dragonframe, Stop Motion Studio Pro, iStopMotion) costs more than the camera did. Phones already have free apps. Real cameras do not.
 
 DragonSlayer is that missing piece. One camera library ([libgphoto2](http://gphoto.org)) covers hundreds of DSLRs and mirrorless bodies. One window, one keyboard, one film.
+
+It's what my daughter shoots with now, it's what her friends are starting to use, and it'll always be free. If it saves you or your kid a big software licence and you can spare a coffee, [tips on Ko-fi](https://ko-fi.com/ronnie54882) genuinely help and go straight back into the project. If you can't, use it anyway — that's the whole point.
 
 ## ⚠ What DragonSlayer is *not*
 
@@ -98,7 +100,7 @@ DragonSlayer is deliberately kept small: it does one job (capture + compile) and
 
 ### Windows
 
-1. **Download** `dragonslayer-<version>-windows-x64.zip` from the [Releases page](https://github.com/TheMagnificentRonnie/DragonSlayer/releases) — the newest release that has a Windows zip under *Assets* (currently [0.2.0-beta](https://github.com/TheMagnificentRonnie/DragonSlayer/releases/tag/v0.2.0-beta)). Unzip it anywhere. Or [build from source](#build-from-source).
+1. **Download** `dragonslayer-<version>-windows-x64.zip` from the [latest release](https://github.com/TheMagnificentRonnie/DragonSlayer/releases/latest) under *Assets*, and unzip it anywhere. Or [build from source](#build-from-source).
 2. **Plug in your camera** on USB, turn it on, set it to *PC* / *PC(Tether)* / *PTP* mode.
 3. Double-click `DragonSlayer.cmd` in the unzipped folder (from a source build: `bin\dragonslayer-app.cmd`).
 4. If Windows is still using its own driver, click **Set up USB driver…** in the top right. The bundled Zadig walks through a one-time swap to WinUSB (nothing on the camera changes — only which Windows driver claims the USB port).
@@ -274,6 +276,10 @@ The camera trait is designed so a future WPD (Windows Portable Devices) backend 
 ## Licence
 
 MIT — see [LICENSE](LICENSE). libgphoto2 is LGPL-2.1+ and dynamically linked. Zadig / libwdi (Windows bundle only) are LGPL-3.0.
+
+## Support the project
+
+DragonSlayer is one parent and a laptop. Nothing here comes out of a company — no ads, no subscriptions, no telemetry, no "premium" tier, no account you have to make. If you'd like to chip in a coffee toward SD cards, spare cameras to test compatibility, or the odd late-night pizza while I chase down a Panasonic PTP quirk: [ko-fi.com/ronnie54882](https://ko-fi.com/ronnie54882). Genuinely appreciated, never expected.
 
 ## Credits
 
