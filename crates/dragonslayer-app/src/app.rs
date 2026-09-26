@@ -111,6 +111,8 @@ pub struct DragonSlayerApp {
     onion_count: usize,
     onion_opacity: f32,
     onion_edges: bool,
+    /// Show the "other view" picture-in-picture in the viewer corner.
+    pip_on: bool,
 
     images: Images,
     renaming: Option<(String, String)>,
@@ -185,6 +187,7 @@ impl DragonSlayerApp {
             onion_count: 1,
             onion_opacity: 0.55,
             onion_edges: true,
+            pip_on: true,
             images: Images::new(&ctx),
             help_open: false,
             help_os: if cfg!(target_os = "macos") { HelpOs::Mac } else { HelpOs::Windows },
@@ -591,6 +594,7 @@ impl DragonSlayerApp {
                 ui.separator();
                 ui.checkbox(&mut self.onion_on, format!("{}  Onion skin (O)", ph::STACK));
                 ui.checkbox(&mut self.onion_edges, format!("{}  Outlines only", ph::EYE));
+                ui.checkbox(&mut self.pip_on, format!("{}  Picture-in-picture", ph::IMAGE_SQUARE));
             });
             ui.menu_button(format!("{}  Scene", ph::FILM_STRIP), |ui| {
                 let can = self.project.is_some();
@@ -751,6 +755,9 @@ impl DragonSlayerApp {
             ui.add(egui::Slider::new(&mut self.onion_opacity, 0.05..=0.9).text("opacity"));
             ui.checkbox(&mut self.onion_edges, "Outlines only (crisper over live view)");
         });
+        ui.separator();
+        ui.checkbox(&mut self.pip_on, "Picture-in-picture (other view in corner)")
+            .on_hover_text("Shows the last captured frame while on live view, or the live feed while in Preview.");
     }
 
     fn tab_export(&mut self, ui: &mut egui::Ui) {
@@ -1336,6 +1343,9 @@ impl DragonSlayerApp {
         // Picture-in-picture: always show the "other" view in the top-right corner —
         // unless that would duplicate what the main viewer is already showing
         // (e.g. no live feed → main falls back to last frame → PIP would repeat it).
+        if !self.pip_on {
+            return;
+        }
         let main_is_live_feed = self.mode.is_add_frames() && self.live.is_some();
         let main_frame_idx: Option<usize> = if !self.mode.is_add_frames() {
             self.mode.preview_index()
