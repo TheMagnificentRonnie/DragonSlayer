@@ -2069,10 +2069,15 @@ fn launch_driver_setup() {
 #[cfg(not(windows))]
 fn launch_driver_setup() {}
 
-/// Simple debug log to %TEMP%\dragonslayer.log so we can see what an off-machine build actually does.
+/// Simple debug log to %TEMP%\dragonslayer.log (Windows) or ~/Library/Logs/dragonslayer.log (macOS)
+/// so we can see what an off-machine build actually does.
 fn log_line(msg: &str) {
     use std::io::Write;
-    let Ok(mut dir) = std::env::var("TEMP").map(std::path::PathBuf::from) else { return };
+    #[cfg(target_os = "macos")]
+    let dir = std::env::var("HOME").map(|h| std::path::PathBuf::from(h).join("Library/Logs"));
+    #[cfg(not(target_os = "macos"))]
+    let dir = std::env::var("TEMP").map(std::path::PathBuf::from);
+    let Ok(mut dir) = dir else { return };
     dir.push("dragonslayer.log");
     if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&dir) {
         let _ = writeln!(f, "{} {msg}", chrono_stamp());

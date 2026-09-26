@@ -1,5 +1,7 @@
 # DragonSlayer on macOS — setup for total beginners
 
+> **Just want to use DragonSlayer?** You don't need any of this. Download the ready-made Mac app instead — see [Install on macOS](README.md#macos) in the README. This guide is for building DragonSlayer from source code yourself.
+
 Assumes: you have a Mac. That's it.
 
 Not assumed: that you've ever opened Terminal, used a package manager, written code, typed a git command, or heard of Rust. Every step tells you exactly what to do, what will happen, how long it takes, and what to do if it goes wrong.
@@ -130,14 +132,15 @@ Time: 5–15 minutes. Homebrew will chat a lot about what it's doing. Ignore the
 - **pkg-config** is a helper that tells Rust where libgphoto2 lives on your Mac.
 - **git** — Apple's git is fine but Homebrew's is newer.
 
-Verify (all four should print a version, not an error):
+Verify (all three should print a version, not an error):
 
 ```sh
-gphoto2 --version | head -1
 ffmpeg -version | head -1
 pkg-config --modversion libgphoto2
 git --version
 ```
+
+The middle one should print something like `2.5.34` — that's libgphoto2 found. (Don't try `gphoto2 --version`: that's a separate command-line program DragonSlayer doesn't need, and `brew install libgphoto2` doesn't include it, so it will say "command not found".)
 
 ## 5. Install Rust
 
@@ -180,6 +183,8 @@ git config --global core.autocrlf input
 `--global` means "for every project on this Mac". `user.name` and `user.email` show up on your commits.
 
 ## 7. Set your Mac up to talk to GitHub
+
+**Only building and running DragonSlayer? Skip this step.** The repository is public, so downloading it (step 8, Option A) needs no login or token. You only need this step to *push* changes back to GitHub.
 
 Two options. Pick one.
 
@@ -296,14 +301,16 @@ The first build takes **5–15 minutes** — Rust downloads and compiles every d
 ### Without a camera (try the app)
 
 ```sh
-cargo run --release -p dragonslayer-app -- --mock
+cargo run --release --features gphoto2 -p dragonslayer-app -- --mock
 ```
+
+(Keep `--features gphoto2` even with `--mock`. Leaving it out is a *different* build, so Rust recompiles the whole app, and again when you switch back.)
 
 The app window opens with a fake camera showing a moving orange square. Press **H** for the in-app help. Press **Space** to capture a fake frame.
 
 ### With your camera
 
-1. Turn the camera on. Put it in **PC** / **PC(Tether)** / **PTP** mode via its menu.
+1. Turn the camera on. Put it in **PC** / **PC(Tether)** / **PTP** mode via its menu. (Panasonic Lumix, e.g. GH5: **Setup menu (spanner) → USB Mode → PC(Tether)**, or **PC(Storage)** if there's no Tether option.)
 2. Plug it into a USB port on the Mac.
 3. **Quit Photos and Image Capture** if they open — they'll steal the camera.
 4. In Terminal:
@@ -354,6 +361,21 @@ Restart Terminal, then just:
 dsl-app
 dsl cameras
 ```
+
+## 12. Make a double-clickable app (optional)
+
+Tired of Terminal? This builds a proper `DragonSlayer.app`, puts it in the Applications folder in your home folder, and adds a **DragonSlayer** shortcut to your Desktop:
+
+```sh
+cd ~/Developer/DragonSlayer
+scripts/package-macos.sh --install
+```
+
+The app is self-contained: it carries its own copy of libgphoto2, the camera drivers and ffmpeg, and frees the camera from macOS (`killall ptpcamerad`) every time it starts. Drag it to your Dock if you like.
+
+It's a *copy*, so `git pull` alone doesn't update it. After pulling, re-run `scripts/package-macos.sh --install`.
+
+The same script (without `--install`) is how the release zip is made: it writes `target/dist/dragonslayer-<version>-macos-arm64.zip`.
 
 ---
 
@@ -459,12 +481,19 @@ Add to your profile so it persists:
 echo 'export DYLD_LIBRARY_PATH="$(brew --prefix)/lib:$DYLD_LIBRARY_PATH"' >> ~/.zprofile
 ```
 
+### "ffmpeg: could not run ffmpeg: No such file or directory" when exporting
+
+DragonSlayer can't find ffmpeg. Two usual causes:
+
+- **You started it outside Terminal** (a home-made app, Automator, a Dock shortcut to the raw binary). Programs opened from Finder don't get Homebrew's folders on their `PATH`, so they can't see `/opt/homebrew/bin/ffmpeg` even though Terminal can. Use `scripts/package-macos.sh --install` (step 12) instead — its app carries its own ffmpeg.
+- **ffmpeg isn't installed.** `ffmpeg -version` in Terminal says "command not found" → `brew install ffmpeg`.
+
 ### "This Mac says the app is damaged or from an unidentified developer"
 
-If you downloaded a pre-built binary (not built yourself):
+If you downloaded the pre-built app (not built yourself): it isn't signed with a paid Apple Developer certificate, so macOS blocks the first launch. See [Install on macOS](README.md#macos) in the README for the one-time fix, or in Terminal:
 
 ```sh
-xattr -dr com.apple.quarantine ~/Downloads/DragonSlayer
+xattr -dr com.apple.quarantine /Applications/DragonSlayer.app
 ```
 
 If you built from source, this doesn't apply — the OS trusts what it just built.
@@ -472,7 +501,7 @@ If you built from source, this doesn't apply — the OS trusts what it just buil
 ### Anything else
 
 - Open **Help** inside the app (press **H**) — has a full troubleshooting section for camera-side issues.
-- The last few lines of `~/Library/Logs/dragonslayer.log` usually explain what happened.
+- The last few lines of `~/Library/Logs/dragonslayer.log` usually explain what happened (0.2.1-beta and later; older Mac builds didn't write a log). Open it with `open ~/Library/Logs/dragonslayer.log`.
 - Open an issue at <https://github.com/TheMagnificentRonnie/DragonSlayer/issues>. Attach the last 30 lines of the log and the exact error you saw.
 
 ---

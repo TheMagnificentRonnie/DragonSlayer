@@ -100,10 +100,23 @@ DragonSlayer is deliberately kept small: it does one job (capture + compile) and
 
 ### macOS
 
-1. `brew install libgphoto2 ffmpeg pkg-config`
-2. Build (see below).
-3. Quit Photos and Image Capture; in Terminal: `killall ptpcamerad`.
-4. Plug in your camera in PC/PTP mode, open the app.
+Needs an Apple Silicon Mac (M1 or newer) running macOS 12 or later. Nothing else to install: the app carries its own camera drivers and ffmpeg.
+
+1. **Download** `dragonslayer-<version>-macos-arm64.zip` from the [Releases page](https://github.com/TheMagnificentRonnie/DragonSlayer/releases) (under *Assets*).
+2. **Unzip** it (double-click the zip in Downloads) and **drag `DragonSlayer.app` into Applications**.
+3. **First launch only** — the app isn't signed with a paid Apple certificate, so macOS blocks it once:
+   1. Double-click DragonSlayer. macOS says it *"could not verify DragonSlayer is free of malware"* — click **Done** (not *Move to Trash*).
+   2. Open **System Settings → Privacy & Security**, scroll down to the message about DragonSlayer, and click **Open Anyway**. Enter your Mac password if asked, then **Open Anyway** again.
+
+   Or do it in one line in Terminal: `xattr -dr com.apple.quarantine /Applications/DragonSlayer.app`
+
+   After that it opens normally with a double-click.
+4. **Set your camera to PC / PC(Tether) / PTP mode**, plug it in by USB, and quit Photos and Image Capture if they pop up. (The app frees the camera from macOS's own camera service when it starts; if you plug the camera in *after* opening DragonSlayer, quit and reopen it.)
+5. Click **New project…**, capture with **Space**, hit **H** any time for help.
+
+Stuck? The last lines of `~/Library/Logs/dragonslayer.log` usually say why, and [`MAC-DEV-SETUP.md` → Troubleshooting](MAC-DEV-SETUP.md#troubleshooting) covers the common camera problems.
+
+Prefer to build it yourself? See [Build from source](#build-from-source).
 
 ## Keyboard
 
@@ -167,6 +180,8 @@ Then run `bin\dragonslayer-app.cmd` from a regular Command Prompt.
 brew install libgphoto2 ffmpeg pkg-config
 cargo build --release --features gphoto2 -p dragonslayer-cli -p dragonslayer-app
 ```
+
+`scripts/package-macos.sh` turns that build into a self-contained `DragonSlayer.app` and release zip (`--install` also puts it in `~/Applications` with a Desktop shortcut).
 
 **Fresh Mac?** Full setup guide — Homebrew, git, SSH keys, editor setup, common macOS build errors — in [`MAC-DEV-SETUP.md`](MAC-DEV-SETUP.md).
 
