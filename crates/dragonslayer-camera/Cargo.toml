@@ -1,6 +1,6 @@
 [package]
 name = "dragonslayer-camera"
-description = "DragonSlayer camera interface, a mock backend and the libgphoto2 backend."
+description = "DragonSlayer camera interface: mock, libgphoto2 (DSLR/mirrorless) and UVC webcam backends."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -10,9 +10,14 @@ publish.workspace = true
 default = []
 # Needs libgphoto2 and pkg-config on the build machine; see README.
 gphoto2 = ["dep:gphoto2", "dep:libgphoto2_sys"]
+# UVC webcams — Android USB webcam mode, laptop webcams, HDMI capture cards, etc.
+# Uses the OS's native capture stack: MediaFoundation on Windows,
+# AVFoundation on macOS, V4L2 on Linux.
+webcam = ["dep:nokhwa"]
 
 [dependencies]
 thiserror = { workspace = true }
 image = { workspace = true }
 gphoto2 = { version = "3", optional = true }
 libgphoto2_sys = { version = "1.2", optional = true }
+nokhwa = { version = "0.10", optional = true, default-features = false, features = ["input-native", "decoding"] }
