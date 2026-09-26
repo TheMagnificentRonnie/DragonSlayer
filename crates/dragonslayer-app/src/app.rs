@@ -969,32 +969,7 @@ impl DragonSlayerApp {
                 FontId::proportional(12.0),
                 Color32::WHITE,
             );
-            painter.text(
-                pip_rect.right_bottom() + Vec2::new(-6.0, -4.0),
-                Align2::RIGHT_BOTTOM,
-                "click to swap",
-                FontId::proportional(10.0),
-                Color32::from_white_alpha(180),
-            );
-            if let Some(target) = swap_target {
-                let resp = ui.interact(pip_rect, egui::Id::new("pip swap"), Sense::click());
-                if resp.clicked() {
-                    log_line(&format!("PIP clicked → swap to {target:?}"));
-                    self.viewer = target;
-                }
-                if resp.hovered() {
-                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-                }
-            }
-        }
-
-        // Also let a click on the main viewer, when we're reviewing, offer a way to jump
-        // back to live. Right-click anywhere in the viewer → back to live view.
-        if !self.viewer.is_live() {
-            let resp = ui.interact(rect, egui::Id::new("viewer main"), Sense::click());
-            if resp.secondary_clicked() {
-                self.viewer = ViewerState::Live;
-            }
+            let _ = swap_target;
         }
     }
 
