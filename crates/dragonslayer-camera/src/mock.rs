@@ -118,25 +118,18 @@ impl Camera for MockCamera {
         let (stop_t, unplugged) = (stop.clone(), self.unplugged.clone());
         let start = self.shots;
         thread::spawn(move || {
-            // Under `cargo test`: encode ONE tiny frame and reuse the bytes. Real live view
-            // renders every frame; here it doesn't matter, and the constant CPU + JPEG
-            // encoder contention was starving other test threads on the Mac CI runner.
-            let cached: Option<Vec<u8>> = cfg!(test).then(|| render(32, 24, 0.0, 70));
+            // Small render (320x180 at 5 fps): the moving square is still visible, and it
+            // stops the mock's live view from starving other threads. `cfg!(test)` is
+            // per-crate, so a test-only version wouldn't apply when the app tests link us.
             for seq in 0.. {
                 if stop_t.load(Ordering::Relaxed) || unplugged.load(Ordering::Relaxed) {
                     break;
                 }
-                let jpeg = match &cached {
-                    Some(bytes) => bytes.clone(),
-                    None => {
-                        let t = start as f32 + seq as f32 / 15.0;
-                        render(640, 360, t, 70)
-                    }
-                };
-                if !producer.send(LiveFrame { seq, jpeg }) {
+                let t = start as f32 + seq as f32 / 5.0;
+                if !producer.send(LiveFrame { seq, jpeg: render(320, 180, t, 70) }) {
                     break;
                 }
-                thread::sleep(Duration::from_millis(66));
+                thread::sleep(Duration::from_millis(200));
             }
         });
         self.live = Some(stop);

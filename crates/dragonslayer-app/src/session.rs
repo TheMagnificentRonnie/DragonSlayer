@@ -80,8 +80,15 @@ impl Worker {
     }
 
     fn send(&self, ev: Event) {
+        // Live-view events don't need a repaint request: the app schedules its own repaint
+        // every frame while `live.is_some()`. Calling request_repaint 15 times a second from
+        // this thread on top of that hammered egui's viewport lock (visible on macOS CI
+        // as import worker starvation).
+        let repaint = !matches!(ev, Event::Live(_));
         let _ = self.events.send(ev);
-        self.ctx.request_repaint();
+        if repaint {
+            self.ctx.request_repaint();
+        }
     }
 
     fn status(&mut self, s: Status) {
