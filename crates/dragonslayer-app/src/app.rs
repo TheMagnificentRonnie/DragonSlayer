@@ -297,6 +297,14 @@ impl DragonSlayerApp {
             Ok((rows, frames)) => {
                 self.scenes = rows;
                 self.frames = frames;
+                // The frame list can shrink (delete last, switching to a shorter scene), so
+                // pull a Preview cursor back in range before anything indexes with it.
+                if let Mode::Preview { index, .. } = &mut self.mode {
+                    match self.frames.len().checked_sub(1) {
+                        Some(last) => *index = (*index).min(last),
+                        None => self.mode = Mode::AddFrames,
+                    }
+                }
             }
             Err(e) => self.error(e),
         }
