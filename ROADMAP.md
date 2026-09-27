@@ -14,7 +14,7 @@ Each item has a rough complexity rating: **S** (a day), **M** (a week), **L** (a
 
 ---
 
-## Where we are today (0.3.0-beta)
+## Where we are today (0.3.1-beta)
 
 - ✅ Live view over USB via libgphoto2 (hundreds of DSLR / mirrorless bodies)
 - ✅ Project + scene model, drag-to-reorder, rename, per-scene fps, trash

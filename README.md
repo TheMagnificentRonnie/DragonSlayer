@@ -7,7 +7,7 @@
 </p>
 
 <p align="center">
-  <b>Status:</b> 0.3.0-beta &nbsp;·&nbsp;
+  <b>Status:</b> 0.3.1-beta &nbsp;·&nbsp;
   <b>Licence:</b> MIT &nbsp;·&nbsp;
   <b>Help:</b> <a href="https://github.com/TheMagnificentRonnie/DragonSlayer/issues">GitHub issues</a>
 </p>
