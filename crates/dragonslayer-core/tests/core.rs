@@ -474,3 +474,38 @@ fn journal_read_on_missing_file_is_empty_not_an_error() {
     let entries = journal::read(&path).unwrap();
     assert!(entries.is_empty());
 }
+
+// ---------------------------------------------------------------- progress
+
+#[test]
+fn progress_lines_map_output_time_onto_total_duration() {
+    // 10 s film: 2.5 s of output is 25%.
+    assert_eq!(compile::progress_from_line("out_time_us=2500000", 10.0), Some(0.25));
+    // Older ffmpeg only prints out_time_ms, which is also microseconds.
+    assert_eq!(compile::progress_from_line("out_time_ms=5000000", 10.0), Some(0.5));
+    assert_eq!(compile::progress_from_line("progress=end", 10.0), Some(1.0));
+}
+
+#[test]
+fn progress_lines_that_are_not_progress_are_ignored_and_values_clamped() {
+    assert_eq!(compile::progress_from_line("frame=12", 10.0), None);
+    assert_eq!(compile::progress_from_line("out_time_us=N/A", 10.0), None);
+    assert_eq!(compile::progress_from_line("progress=continue", 10.0), None);
+    assert_eq!(compile::progress_from_line("garbage", 10.0), None);
+    // ffmpeg can overshoot slightly on the last frame; never report more than 100%.
+    assert_eq!(compile::progress_from_line("out_time_us=11000000", 10.0), Some(1.0));
+    // Empty film: no division by zero.
+    assert_eq!(compile::progress_from_line("out_time_us=1000", 0.0), None);
+}
+
+#[test]
+fn ffmpeg_args_ask_for_machine_readable_progress_on_stdout() {
+    let args = compile::ffmpeg_args(
+        &PathBuf::from("/l.txt"),
+        &PathBuf::from("/o.mp4"),
+        12,
+        &compile::Settings::default(),
+    );
+    let at = args.iter().position(|a| a == "-progress").expect("-progress");
+    assert_eq!(args[at + 1], "pipe:1");
+}

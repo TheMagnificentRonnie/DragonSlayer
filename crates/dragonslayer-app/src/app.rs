@@ -1,5 +1,7 @@
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::mpsc::{self, Receiver};
+use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -41,6 +43,10 @@ impl Tab {
     }
 }
 
+use dragonslayer_camera::diag::UsbCamera;
+
+type UsbScan = Result<Vec<UsbCamera>, String>;
+
 use crate::images::Images;
 use crate::session::{Cmd, Event, Session, Status};
 
@@ -72,6 +78,9 @@ struct CompileDialog {
     /// so the whole film plays back at that rate regardless of what it was captured at.
     fps: Option<u32>,
     running: Option<Receiver<Result<compile::Output, String>>>,
+    /// 0.0–1.0 as f32 bits, written by the compile thread.
+    progress: Arc<AtomicU32>,
+    started: Instant,
     result: Option<Result<compile::Output, String>>,
 }
 
@@ -85,6 +94,8 @@ impl Default for CompileDialog {
             framing: Framing::Fit,
             fps: None,
             running: None,
+            progress: Arc::new(AtomicU32::new(0)),
+            started: Instant::now(),
             result: None,
         }
     }
@@ -141,6 +152,14 @@ pub struct DragonSlayerApp {
     compile: CompileDialog,
     help_open: bool,
     help_os: HelpOs,
+    help_tab: HelpTab,
+    /// Latest USB device check (Windows): which driver has the camera, is it behind a hub.
+    usb_scan: Option<UsbScan>,
+    usb_scan_rx: Option<Receiver<Option<UsbScan>>>,
+    usb_scan_at: Option<Instant>,
+    diagnose_open: bool,
+    /// When the last live view frame arrived, so the diagnosis can tell if live view is flowing.
+    last_live_at: Option<Instant>,
     message: Option<(String, bool, Instant)>,
     keys: Vec<Key>,
     _awake: Option<keepawake::KeepAwake>,
@@ -150,6 +169,12 @@ pub struct DragonSlayerApp {
 enum HelpOs {
     Windows,
     Mac,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+enum HelpTab {
+    Guide,
+    Advanced,
 }
 
 /// An interval-capture sequence in progress. Between shots the app waits until
@@ -235,6 +260,12 @@ impl DragonSlayerApp {
             images: Images::new(&ctx),
             help_open: false,
             help_os: if cfg!(target_os = "macos") { HelpOs::Mac } else { HelpOs::Windows },
+            help_tab: HelpTab::Guide,
+            usb_scan: None,
+            usb_scan_rx: None,
+            usb_scan_at: None,
+            diagnose_open: false,
+            last_live_at: None,
             renaming: None,
             drag_from: None,
             compile: CompileDialog::default(),
@@ -437,10 +468,13 @@ impl DragonSlayerApp {
                     }
                     self.status = s;
                 }
-                Event::Live(img) => match &mut self.live {
-                    Some(t) if t.size() == img.size => t.set(img, TextureOptions::LINEAR),
-                    _ => self.live = Some(ctx.load_texture("live view", img, TextureOptions::LINEAR)),
-                },
+                Event::Live(img) => {
+                    self.last_live_at = Some(Instant::now());
+                    match &mut self.live {
+                        Some(t) if t.size() == img.size => t.set(img, TextureOptions::LINEAR),
+                        _ => self.live = Some(ctx.load_texture("live view", img, TextureOptions::LINEAR)),
+                    }
+                }
                 Event::Settings(settings) => {
                     self.camera_settings = settings;
                     self.setting_pending = false;
@@ -492,6 +526,13 @@ impl DragonSlayerApp {
             }
         }
 
+        if let Some(rx) = &self.usb_scan_rx
+            && let Ok(result) = rx.try_recv()
+        {
+            self.usb_scan_rx = None;
+            self.usb_scan = result;
+        }
+
         if let Some(rx) = &self.compile.running
             && let Ok(result) = rx.try_recv() {
                 self.compile.running = None;
@@ -500,13 +541,15 @@ impl DragonSlayerApp {
     }
 
     fn shortcuts_active(&self) -> bool {
-        self.renaming.is_none() && !self.compile.open && !self.help_open
+        self.renaming.is_none() && !self.compile.open && !self.help_open && !self.diagnose_open
     }
 
     /// Takes the shortcut keys out of the input before egui sees them, so a
     /// focused button can't swallow Space and Tab doesn't move keyboard focus.
-    fn take_shortcuts(&mut self, raw: &mut egui::RawInput) {
-        if !self.shortcuts_active() {
+    fn take_shortcuts(&mut self, raw: &mut egui::RawInput, typing: bool) {
+        // While typing in a text or number field, Backspace and Space belong to the field,
+        // not to delete-last-frame and capture.
+        if !self.shortcuts_active() || typing {
             return;
         }
         // Keys we handle ourselves. Arrow keys and Home/End are navigation.
@@ -875,6 +918,11 @@ impl DragonSlayerApp {
                     self.help_open = true;
                     ui.close();
                 }
+                if ui.button(format!("{}  Diagnose camera…", ph::STETHOSCOPE)).clicked() {
+                    self.diagnose_open = true;
+                    self.start_usb_scan(ui.ctx());
+                    ui.close();
+                }
             });
 
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -993,6 +1041,16 @@ impl DragonSlayerApp {
         }
         ui.add_space(10.0);
         self.interval_ui(ui);
+        ui.add_space(10.0);
+        ui.separator();
+        if ui
+            .button(format!("{}  Diagnose camera…", ph::STETHOSCOPE))
+            .on_hover_text("Checks the USB connection, the Windows driver, and whether the camera answers")
+            .clicked()
+        {
+            self.diagnose_open = true;
+            self.start_usb_scan(ui.ctx());
+        }
     }
 
     /// Interval-capture controls: N frames, every S seconds. Start/Stop toggles.
@@ -1188,10 +1246,52 @@ impl DragonSlayerApp {
         self.timeline(ui);
     }
 
+    /// Checks USB devices in the background (a PowerShell query, ~2 s). Windows only.
+    fn start_usb_scan(&mut self, ctx: &egui::Context) {
+        if !cfg!(windows) || self.usb_scan_rx.is_some() {
+            return;
+        }
+        let (tx, rx) = mpsc::channel();
+        let ctx = ctx.clone();
+        thread::spawn(move || {
+            let _ = tx.send(dragonslayer_camera::diag::scan());
+            ctx.request_repaint();
+        });
+        self.usb_scan_rx = Some(rx);
+        self.usb_scan_at = Some(Instant::now());
+    }
+
+    /// While no camera is connected, re-check USB every 10 s so a camera stuck on
+    /// Windows' own driver (wrong port for Zadig) is pointed out without asking.
+    fn auto_usb_scan(&mut self, ctx: &egui::Context) {
+        let looking = matches!(self.status, Status::Searching | Status::Problem { .. } | Status::WrongDriver { .. });
+        if looking && self.usb_scan_at.is_none_or(|t| t.elapsed() >= Duration::from_secs(10)) {
+            self.start_usb_scan(ctx);
+        }
+    }
+
+    /// A plugged-in camera on Windows' own driver, according to the last USB check.
+    fn camera_on_windows_driver(&self) -> Option<&UsbCamera> {
+        self.usb_scan.as_ref()?.as_ref().ok()?.iter().find(|c| !c.driver.usable())
+    }
+
     fn camera_status(&mut self, ui: &mut egui::Ui) {
-        // Actionable driver state gets its own row with a Set up button.
-        if let Status::WrongDriver { name } = &self.status {
-            let n = name.clone().unwrap_or_else(|| "Camera".into());
+        // Actionable driver state gets its own row with a Set up button. The USB check
+        // catches it even when the camera library doesn't list the camera at all.
+        let needs_driver = match &self.status {
+            Status::WrongDriver { name } => Some(name.clone().unwrap_or_else(|| "Camera".into())),
+            Status::Searching | Status::Problem { .. } => self.camera_on_windows_driver().map(|c| c.name.clone()),
+            _ => None,
+        };
+        if let Some(n) = needs_driver {
+            if ui
+                .small_button(egui_phosphor::regular::STETHOSCOPE)
+                .on_hover_text("Diagnose camera")
+                .clicked()
+            {
+                self.diagnose_open = true;
+                self.start_usb_scan(ui.ctx());
+            }
             if ui
                 .button("Set up USB driver…")
                 .on_hover_text("One-time driver swap so DragonSlayer can talk to the camera")
@@ -1199,7 +1299,7 @@ impl DragonSlayerApp {
             {
                 launch_driver_setup();
             }
-            ui.label(RichText::new(format!("{n} · needs driver setup")).color(crate::theme::palette().warn));
+            ui.label(RichText::new(format!("{n} · this USB port needs driver setup")).color(crate::theme::palette().warn));
             let (rect, _) = ui.allocate_exact_size(Vec2::splat(10.0), Sense::hover());
             ui.painter().circle_filled(rect.center(), 5.0, crate::theme::palette().warn);
             return;
@@ -1227,6 +1327,15 @@ impl DragonSlayerApp {
             ),
             Status::WrongDriver { .. } => unreachable!(),
         };
+        if matches!(self.status, Status::Searching | Status::Problem { .. })
+            && ui
+                .small_button(egui_phosphor::regular::STETHOSCOPE)
+                .on_hover_text("Diagnose camera")
+                .clicked()
+        {
+            self.diagnose_open = true;
+            self.start_usb_scan(ui.ctx());
+        }
         if let Some(detail) = &detail {
             ui.label(RichText::new(detail).small().color(ui.visuals().weak_text_color())).on_hover_text(detail);
         }
@@ -1714,10 +1823,15 @@ impl DragonSlayerApp {
 
                 ui.add_space(8.0);
                 if busy {
-                    ui.horizontal(|ui| {
-                        ui.spinner();
-                        ui.label("Compiling…");
-                    });
+                    let p = f32::from_bits(d.progress.load(Ordering::Relaxed));
+                    let elapsed = d.started.elapsed().as_secs_f32();
+                    // ETA is noise for the first few percent while ffmpeg warms up.
+                    let text = if p > 0.03 && p < 1.0 {
+                        format!("{:.0}%  ·  about {} left", p * 100.0, human_secs(elapsed * (1.0 - p) / p))
+                    } else {
+                        format!("{:.0}%", p * 100.0)
+                    };
+                    ui.add(egui::ProgressBar::new(p).desired_width(ui.available_width()).animate(true).text(text));
                 } else if ui
                     .add(
                         egui::Button::new(RichText::new("Compile").strong().size(15.0).color(crate::theme::palette().on_accent))
@@ -1736,11 +1850,18 @@ impl DragonSlayerApp {
                         };
                         let (tx, rx) = mpsc::channel();
                         let ctx = ui.ctx().clone();
+                        let progress = Arc::new(AtomicU32::new(0));
+                        let shared = progress.clone();
                         thread::spawn(move || {
-                            let r = compile::compile(&p, scene.as_deref(), &settings).map_err(|e| e.to_string());
+                            let r = compile::compile_with_progress(&p, scene.as_deref(), &settings, |f| {
+                                shared.store(f.to_bits(), Ordering::Relaxed);
+                            })
+                            .map_err(|e| e.to_string());
                             let _ = tx.send(r);
                             ctx.request_repaint();
                         });
+                        d.progress = progress;
+                        d.started = Instant::now();
                         d.running = Some(rx);
                         d.result = None;
                     }
@@ -1780,18 +1901,26 @@ impl DragonSlayerApp {
             ui.set_max_height(680.0);
             ui.horizontal(|ui| {
                 ui.heading("Help");
-                ui.label(RichText::new("Instructions for:").small());
-                ui.selectable_value(&mut self.help_os, HelpOs::Windows, "Windows");
-                ui.selectable_value(&mut self.help_os, HelpOs::Mac, "macOS");
+                ui.add_space(8.0);
+                ui.selectable_value(&mut self.help_tab, HelpTab::Guide, "Guide");
+                ui.selectable_value(&mut self.help_tab, HelpTab::Advanced, "Advanced camera troubleshooting");
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     if ui.button("Close").clicked() {
                         self.help_open = false;
                     }
                 });
             });
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("Instructions for:").small());
+                ui.selectable_value(&mut self.help_os, HelpOs::Windows, "Windows");
+                ui.selectable_value(&mut self.help_os, HelpOs::Mac, "macOS");
+            });
             ui.separator();
-            egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-                help_content(ui, self.help_os);
+            egui::ScrollArea::vertical().id_salt(self.help_tab).auto_shrink([false, false]).show(ui, |ui| {
+                match self.help_tab {
+                    HelpTab::Guide => help_content(ui, self.help_os),
+                    HelpTab::Advanced => help_advanced(ui, self.help_os),
+                }
             });
         });
         // Click outside the modal or press Escape → close.
@@ -1799,6 +1928,327 @@ impl DragonSlayerApp {
             self.help_open = false;
         }
     }
+
+    /// Camera diagnosis: each check with a verdict and, when it fails, the fix.
+    fn diagnose_window(&mut self, ctx: &egui::Context) {
+        if !self.diagnose_open {
+            return;
+        }
+        use egui_phosphor::regular as ph;
+        #[derive(Clone, Copy)]
+        enum V {
+            Ok,
+            Warn,
+            Fail,
+            Info,
+        }
+        let pal = crate::theme::palette();
+        let row = |ui: &mut egui::Ui, v: V, title: &str, fix: &str| {
+            let (icon, color) = match v {
+                V::Ok => (ph::CHECK_CIRCLE, pal.ok),
+                V::Warn => (ph::WARNING, pal.warn),
+                V::Fail => (ph::X_CIRCLE, pal.error),
+                V::Info => (ph::INFO, pal.text_muted),
+            };
+            ui.horizontal_top(|ui| {
+                ui.label(RichText::new(icon).size(16.0).color(color));
+                ui.vertical(|ui| {
+                    ui.label(RichText::new(title).strong());
+                    if !fix.is_empty() {
+                        ui.label(RichText::new(fix).color(pal.text_muted));
+                    }
+                });
+            });
+            ui.add_space(4.0);
+        };
+
+        let mut open = true;
+        let mut rescan = false;
+        let mut advanced = false;
+        let mut any_wrong_driver = matches!(self.status, Status::WrongDriver { .. });
+        egui::Window::new(format!("{}  Camera diagnosis", ph::STETHOSCOPE))
+            .open(&mut open)
+            .collapsible(false)
+            .resizable(false)
+            .default_width(520.0)
+            .anchor(Align2::CENTER_CENTER, Vec2::ZERO)
+            .show(ctx, |ui| {
+                ui.set_max_width(520.0);
+                ui.label(RichText::new("Camera library").small().color(pal.text_dim));
+                let reset = "Do the full reset: quit DragonSlayer, turn the camera off (battery out if it \
+                    won't respond), turn it on, then reopen DragonSlayer.";
+                match &self.status {
+                    Status::Connected { name, .. } => row(ui, V::Ok, &format!("DragonSlayer is talking to the {name}"), ""),
+                    Status::Searching => row(ui, V::Fail, "No camera found", connect_hint()),
+                    Status::WrongDriver { name } => row(
+                        ui,
+                        V::Fail,
+                        &format!("{} is on Windows' own driver", name.as_deref().unwrap_or("The camera")),
+                        "This USB port hasn't been set up for DragonSlayer. Click Set up USB driver… and \
+                        replace the driver with WinUSB, or move the camera back to the port you set up before.",
+                    ),
+                    Status::Problem { name, message } => row(
+                        ui,
+                        V::Fail,
+                        &format!("{}: {message}", name.as_deref().unwrap_or("Camera")),
+                        reset,
+                    ),
+                    Status::NoBackend => row(
+                        ui,
+                        V::Fail,
+                        "This build has no camera support",
+                        "Download the release build from GitHub, or rebuild with --features gphoto2.",
+                    ),
+                }
+
+                if let Status::Connected { caps, .. } = &self.status {
+                    if self.camera_settings.is_empty() {
+                        row(ui, V::Info, "The camera didn't report any settings", "Some models don't; capture still works.");
+                    } else {
+                        row(
+                            ui,
+                            V::Ok,
+                            &format!("The camera answers commands ({} settings read)", self.camera_settings.len()),
+                            "",
+                        );
+                    }
+                    let live_recent = self.last_live_at.is_some_and(|t| t.elapsed() < Duration::from_secs(3));
+                    if !caps.live_view {
+                        row(ui, V::Info, "This model has no live view over USB", "Onion skin shows over the last frame instead.");
+                    } else if !self.mode.is_capture() {
+                        row(ui, V::Info, "Live view is paused while you're in Preview", "Press Tab to go back to Capture.");
+                    } else if live_recent {
+                        row(ui, V::Ok, "Live view frames are arriving", "");
+                    } else {
+                        row(
+                            ui,
+                            V::Fail,
+                            "No live view frames",
+                            "Canon: mode dial on M and Live View shooting enabled in the menu. Check the battery. \
+                            If it still fails, do the full reset (quit DragonSlayer first).",
+                        );
+                    }
+                }
+
+                ui.add_space(6.0);
+                ui.label(RichText::new("USB").small().color(pal.text_dim));
+                if !cfg!(windows) {
+                    row(
+                        ui,
+                        V::Info,
+                        "USB driver checks are for Windows",
+                        "On macOS: quit Photos and Image Capture. If the camera was plugged in after \
+                        DragonSlayer opened, quit and reopen DragonSlayer.",
+                    );
+                } else if self.usb_scan_rx.is_some() {
+                    ui.horizontal(|ui| {
+                        ui.spinner();
+                        ui.label("Checking USB devices…");
+                    });
+                } else {
+                    match &self.usb_scan {
+                        None => {}
+                        Some(Err(e)) => row(ui, V::Info, "Couldn't check the USB devices", e),
+                        Some(Ok(cams)) if cams.is_empty() => row(
+                            ui,
+                            V::Fail,
+                            "No camera seen on USB at all",
+                            "Is the camera on? Some USB cables only charge: try another cable. Check the \
+                            camera's USB mode is PC / PTP, not mass storage.",
+                        ),
+                        Some(Ok(cams)) => {
+                            for c in cams {
+                                match &c.driver {
+                                    dragonslayer_camera::diag::Driver::Usable(d) => {
+                                        row(ui, V::Ok, &format!("{}: driver {d}", c.name), "")
+                                    }
+                                    dragonslayer_camera::diag::Driver::WindowsOwn(d) => {
+                                        any_wrong_driver = true;
+                                        row(
+                                            ui,
+                                            V::Fail,
+                                            &format!("{} is on Windows' own driver ({d})", c.name),
+                                            "Zadig's setup belongs to one USB port, and this one hasn't been set \
+                                            up. Click Set up USB driver… (Options → List All Devices, pick the \
+                                            camera, WinUSB, Replace Driver), or move the camera back to the port \
+                                            you set up before.",
+                                        );
+                                    }
+                                }
+                                match &c.hub {
+                                    Some(hub) => row(
+                                        ui,
+                                        V::Warn,
+                                        &format!("{} is plugged into a hub ({hub})", c.name),
+                                        "Hubs are the most common cause of timeouts. If the camera drops or \
+                                        times out, plug it straight into the computer (and run Zadig once for \
+                                        that port).",
+                                    ),
+                                    None => row(ui, V::Ok, &format!("{} is plugged straight into the computer", c.name), ""),
+                                }
+                            }
+                        }
+                    }
+                }
+
+                ui.separator();
+                ui.horizontal(|ui| {
+                    if ui.button(format!("{}  Check again", ph::ARROW_CLOCKWISE)).clicked() {
+                        rescan = true;
+                    }
+                    if cfg!(windows) && any_wrong_driver && ui.button("Set up USB driver…").clicked() {
+                        launch_driver_setup();
+                    }
+                    if ui.button("Advanced troubleshooting").clicked() {
+                        advanced = true;
+                    }
+                });
+            });
+        if rescan {
+            self.start_usb_scan(ctx);
+        }
+        if advanced {
+            self.help_open = true;
+            self.help_tab = HelpTab::Advanced;
+            self.diagnose_open = false;
+        }
+        if !open {
+            self.diagnose_open = false;
+        }
+    }
+}
+
+/// Deeper diagnosis for when the Guide's troubleshooting hasn't fixed the camera.
+fn help_advanced(ui: &mut egui::Ui, os: HelpOs) {
+    let h = |ui: &mut egui::Ui, s: &str| {
+        ui.add_space(8.0);
+        ui.heading(s);
+    };
+    let sub = |ui: &mut egui::Ui, s: &str| {
+        ui.add_space(6.0);
+        ui.label(RichText::new(s).strong());
+    };
+    let p = |ui: &mut egui::Ui, s: &str| {
+        ui.label(s);
+        ui.add_space(2.0);
+    };
+    let code = |ui: &mut egui::Ui, s: &str| {
+        ui.add(egui::Label::new(RichText::new(s).monospace().background_color(crate::theme::palette().bg_elevated)).wrap());
+        ui.add_space(2.0);
+    };
+    let windows = os == HelpOs::Windows;
+
+    p(ui, "Start with Help → Diagnose camera… (or the stethoscope button next to the camera \
+        status). It runs these checks for you and says which one fails. The rest of this page \
+        is for when that isn't enough; most camera problems are one of the first three sections.");
+
+    h(ui, "1. Read the message");
+    p(ui, "The status bar (top right) says what the camera last reported. What it usually means:");
+    sub(ui, "\"Windows is still using its own driver\" / \"Could not claim the USB device\"");
+    p(ui, if windows {
+        "Windows has the camera on its own photo driver, not WinUSB. Almost always because \
+        the camera is on a different USB port than the one Zadig was run on, or a Windows \
+        update reset it. Run Zadig again for this port (section 2 shows how to check)."
+    } else {
+        "Another program has the camera: macOS's ptpcamerad, Image Capture, Photos, or a \
+        vendor app. See section 6."
+    });
+    sub(ui, "\"I/O error\", \"PTP Timeout\", or live view dies straight away");
+    p(ui, "The camera stopped answering. Usually a stuck USB session left over from a crash \
+        or a disconnect mid-transfer: do the full reset in section 3. If it comes straight \
+        back after a reset, it's the USB connection itself: see section 4.");
+    sub(ui, "\"Camera disconnected\"");
+    p(ui, "The USB link dropped: cable knocked, camera slept or battery died. Check section 5, \
+        then reconnect. Frames already captured are safe; one caught mid-download is \
+        recovered on the next launch or is still on the camera card.");
+    sub(ui, "Connected, but some settings are missing from the Exposure panel");
+    p(ui, "Camera brands name settings differently and DragonSlayer may not know your \
+        camera's name for one yet. Please report it (section 8).");
+
+    if windows {
+        h(ui, "2. Check which driver Windows is using");
+        p(ui, "Open Device Manager (right-click Start → Device Manager) with the camera on and \
+            plugged in:");
+        p(ui, "· Under \"Universal Serial Bus devices\" → WinUSB. This is what DragonSlayer needs.");
+        p(ui, "· Under \"Portable Devices\" (or \"Cameras\") → Windows' own driver. Run Zadig: \
+            Options → List All Devices, pick the camera, WinUSB, Replace Driver.");
+        p(ui, "Zadig's change applies to one USB port. Pick one port for the camera, run \
+            Zadig with it there, and always use that port.");
+    } else {
+        h(ui, "2. Check macOS isn't holding the camera");
+        p(ui, "DragonSlayer quits macOS's camera service (ptpcamerad) when it starts, but it \
+            restarts itself and grabs cameras plugged in later. If the camera was plugged in \
+            after DragonSlayer opened, quit DragonSlayer and open it again. From Terminal:");
+        code(ui, "killall ptpcamerad");
+        p(ui, "In Image Capture, select the camera and set \"Connecting this camera opens\" to \
+            \"No application\" so Photos stops launching.");
+    }
+
+    h(ui, "3. The full reset, in this order");
+    p(ui, "Order matters. Resetting the camera while DragonSlayer still has it open just \
+        wedges it again.");
+    p(ui, "1. Quit DragonSlayer (and any other camera software).");
+    p(ui, "2. Turn the camera off. If it doesn't respond, take the battery out for 10 seconds.");
+    p(ui, "3. Turn it back on and wait until its screen is up.");
+    p(ui, "4. Open DragonSlayer.");
+    p(ui, "A stuck session never damages the camera. It's software state, and the reset \
+        clears it.");
+
+    h(ui, "4. USB: hubs, cables and ports");
+    p(ui, "If the camera times out again right after a clean reset, the connection is the \
+        likely culprit:");
+    p(ui, "· Hubs: plug straight into the computer. Unpowered hubs, monitor USB ports and \
+        dongles with many ports are the most common cause of timeouts.");
+    p(ui, "· Cables: use a short data cable. Some cables only charge; long ones drop out.");
+    p(ui, "· Ports: prefer a port on the back of a desktop (on the motherboard).");
+    if windows {
+        p(ui, "Changing port on Windows means running Zadig again for the new port.");
+    }
+
+    h(ui, "5. Power");
+    p(ui, "· Turn auto power off / sleep off in the camera's menu while shooting.");
+    p(ui, "· A low battery kills live view before it stops the camera taking photos. For \
+        long shoots, a mains adapter (dummy battery) for your camera is worth having.");
+    p(ui, "· Live view keeps the sensor on and warms the camera. If it overheats it shuts \
+        down to protect itself: let it cool, then carry on.");
+
+    h(ui, "6. Camera-specific");
+    sub(ui, "Canon EOS (e.g. 100D)");
+    p(ui, "· Mode dial on M. Scene and green auto modes can refuse remote live view.");
+    p(ui, "· Red camera menu → Live View shooting: Enable. Without it, live view never starts.");
+    p(ui, "· Movie mode blocks stills capture. Use the stills position.");
+    p(ui, "· The camera shows a computer icon while connected. That's normal: the picture \
+        appears in DragonSlayer, not on the camera's screen.");
+    sub(ui, "Panasonic Lumix (e.g. GH5)");
+    p(ui, "· Menu → Setup → USB Mode → PC(Tether).");
+    p(ui, "· Panasonic bodies can lock up under long live-view sessions. DragonSlayer pauses \
+        live view in Preview mode to give the camera a rest. If it keeps happening, switch \
+        to Preview between shots.");
+    if !windows {
+        sub(ui, "macOS");
+        p(ui, "· Quit Photos, Image Capture and vendor apps before opening DragonSlayer.");
+    }
+
+    h(ui, "7. Test the camera without the app");
+    p(ui, "The command-line tool talks to the camera directly, which tells you whether the \
+        problem is the camera or the app. Quit DragonSlayer first.");
+    if windows {
+        p(ui, "In a Command Prompt in the DragonSlayer folder:");
+        code(ui, "DragonSlayer-CLI.cmd diagnose");
+    } else {
+        p(ui, "In Terminal:");
+        code(ui, "R=/Applications/DragonSlayer.app/Contents; CAMLIBS=$R/Resources/libgphoto2/camlibs IOLIBS=$R/Resources/libgphoto2/iolibs $R/MacOS/dragonslayer-cli diagnose");
+    }
+    p(ui, "\"diagnose\" checks the USB driver and hub, opens the camera, reads its settings and \
+        grabs a live view frame, printing ok or x for each step. Swap it for \"cameras\" or \
+        \"settings\" to see just those.");
+
+    h(ui, "8. Reporting a problem");
+    p(ui, "Open an issue on GitHub with your camera model, operating system, what you did and \
+        what happened, and the last lines of the log:");
+    code(ui, if windows { "%TEMP%\\dragonslayer.log" } else { "~/Library/Logs/dragonslayer.log" });
+    p(ui, "Include the output of \"diagnose\" from section 7, and of \"settings\" for missing \
+        Exposure settings.");
 }
 
 fn help_content(ui: &mut egui::Ui, os: HelpOs) {
@@ -1867,11 +2317,25 @@ fn help_content(ui: &mut egui::Ui, os: HelpOs) {
         ghosts are. Outlines: show only edges of the previous frame instead of the whole ghost, \
         which keeps the live view clear.");
 
+    h(ui, "Exposure (camera settings)");
+    p(ui, "The Exposure panel changes aperture, shutter, ISO, white balance and image format \
+        on the camera, so you don't have to touch it (and knock the shot) between frames. \
+        Put the mode dial on M: in auto modes the camera locks some settings (they show \
+        greyed out) and changes exposure between frames, which makes the film flicker. \
+        Set Image format to RAW + JPEG there to keep both files.");
+
+    h(ui, "Interval capture");
+    p(ui, "In the Camera panel: capture N frames automatically, a set number of seconds \
+        apart, for time-lapses. Each shot waits for the previous one to finish, so a slow \
+        camera just stretches the schedule. Stop ends it at any time; it also stops by \
+        itself if the camera disconnects or you switch to Preview.");
+
     h(ui, "Compile");
     p(ui, "Compile… asks whether to render this scene or the whole project, what format \
         (H.264 MP4 or ProRes 422 MOV), what resolution (source, 4K, 1080p) and how to frame \
-        (fit with black bars, or crop to fill). Videos land in your project's exports/ folder \
-        and are never overwritten.");
+        (fit with black bars, or crop to fill). A progress bar shows how far along it is and \
+        roughly how long is left. Videos land in your project's exports/ folder and are never \
+        overwritten.");
 
     match os {
         HelpOs::Windows => {
@@ -1889,6 +2353,10 @@ fn help_content(ui: &mut egui::Ui, os: HelpOs) {
                 unplug/replug.");
             p(ui, "While swapped, the Windows Photos app and vendor tools won't see the \
                 camera. That's expected.");
+            p(ui, "Zadig's change belongs to one USB port. Plug the camera into the same port \
+                every time: on a different port Windows sees a new device, puts its own driver \
+                back, and you'd need to run Zadig again. Use a port on the computer itself \
+                rather than a hub, which can make the camera time out.");
         }
         HelpOs::Mac => {
             h(ui, "macOS: releasing the camera");
@@ -1905,7 +2373,10 @@ fn help_content(ui: &mut egui::Ui, os: HelpOs) {
     h(ui, "Camera USB mode");
     p(ui, "Cameras have several USB modes. DragonSlayer needs PC control, not mass-storage.");
     p(ui, "· Panasonic (e.g. GH5): Menu → SETUP → USB Mode → PC(Tether).");
-    p(ui, "· Canon EOS: usually PC / PTP by default when connected to a computer.");
+    p(ui, "· Canon EOS (e.g. 100D): works as soon as it's plugged in. For live view, set the \
+        mode dial to M and check Live View shooting is enabled in the red camera menu. \
+        The camera shows a small computer icon while connected; that's normal, the \
+        picture appears in DragonSlayer.");
     p(ui, "· Set RAW+JPEG on the camera if you want both files kept. If off, DragonSlayer \
         keeps the JPEG and prints a one-off warning.");
 
@@ -1924,8 +2395,8 @@ fn help_content(ui: &mut egui::Ui, os: HelpOs) {
     p(ui, "Fix in order:");
     p(ui, "1. Turn the camera off, wait 3 seconds, turn it back on. This is the fix for \
         a wedged camera 90% of the time.");
-    p(ui, "2. If still nothing: unplug the USB, wait 3 seconds, plug it back in (a different \
-        port on the computer is fine and sometimes helps).");
+    p(ui, "2. If still nothing: unplug the USB, wait 3 seconds, plug it back into the same \
+        port. (On Windows, a different port needs Zadig again; see the Windows setup section.)");
     p(ui, "3. Check the camera's USB mode (see the \"Camera USB mode\" section above).");
     p(ui, "4. Close any other program that might have grabbed the camera: Photos, Image \
         Capture, Canon EOS Utility, Lumix Tether, etc.");
@@ -2184,6 +2655,11 @@ fn connect_hint() -> &'static str {
     }
 }
 
+fn human_secs(secs: f32) -> String {
+    let s = secs.round() as u64;
+    if s < 60 { format!("{s}s") } else { format!("{}m {:02}s", s / 60, s % 60) }
+}
+
 /// Windows-only: launch bundled Zadig if it's next to our exe, else open the download page.
 /// Zadig itself asks for admin (UAC) and does the WinUSB install. This is a stepping stone
 /// to a fully in-app installer using libwdi.
@@ -2286,8 +2762,8 @@ impl egui_dock::TabViewer for DragonSlayerApp {
 }
 
 impl eframe::App for DragonSlayerApp {
-    fn raw_input_hook(&mut self, _ctx: &egui::Context, raw: &mut egui::RawInput) {
-        self.take_shortcuts(raw);
+    fn raw_input_hook(&mut self, ctx: &egui::Context, raw: &mut egui::RawInput) {
+        self.take_shortcuts(raw, ctx.text_edit_focused());
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
@@ -2328,9 +2804,12 @@ impl eframe::App for DragonSlayerApp {
             });
         }
 
+        self.auto_usb_scan(&ctx);
+
         if self.project.is_none() {
             egui::CentralPanel::default().show(ui, |ui| self.welcome(ui));
             self.help_window(&ctx);
+            self.diagnose_window(&ctx);
             return;
         }
 
@@ -2355,6 +2834,7 @@ impl eframe::App for DragonSlayerApp {
 
         self.compile_window(&ctx);
         self.help_window(&ctx);
+        self.diagnose_window(&ctx);
 
         // Advance playback if we're currently playing.
         self.tick_playback();

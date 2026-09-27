@@ -14,7 +14,7 @@ Each item has a rough complexity rating: **S** (a day), **M** (a week), **L** (a
 
 ---
 
-## Where we are today (0.2.1-beta)
+## Where we are today (0.3.0-beta)
 
 - ✅ Live view over USB via libgphoto2 (hundreds of DSLR / mirrorless bodies)
 - ✅ Project + scene model, drag-to-reorder, rename, per-scene fps, trash
@@ -32,7 +32,14 @@ Each item has a rough complexity rating: **S** (a day), **M** (a week), **L** (a
 - ✅ Picture-in-picture of the other view *(0.2.0)*
 - ✅ Dockable panels (egui_dock), menu bar, Phosphor icons, three themes *(0.2.0)*
 - ✅ Self-contained macOS app (Apple Silicon): libgphoto2 + camera drivers + ffmpeg bundled, `scripts/package-macos.sh` *(0.2.1)*
-- ✅ Interval capture: N frames every S seconds from the Camera panel, stoppable, stops cleanly on camera loss *(unreleased)*
+- ✅ Interval capture: N frames every S seconds from the Camera panel, stoppable, stops cleanly on camera loss *(0.3.0)*
+- ✅ Camera settings from the app: aperture, shutter, ISO, white balance, image format (Exposure panel, `dragonslayer settings`) *(0.3.0)*
+- ✅ Compile progress bar with time remaining *(0.3.0)*
+- ✅ Camera diagnosis: USB driver per port, hubs, camera answers, live view; spots a port that needs Zadig automatically; `dragonslayer diagnose` *(0.3.0)*
+- ✅ Advanced camera troubleshooting tab in help *(0.3.0)*
+- ✅ Minimal view (F) and fill-to-crop viewer *(0.3.0)*
+- ✅ Canon EOS 100D thoroughly tested on Windows *(0.3.0)*
+- ✅ GitHub Actions builds Windows + macOS on every push; releases on demand *(0.3.0)*
 
 ---
 
@@ -67,7 +74,7 @@ The essentials that every serious stop-motion tool has. Getting these done takes
 
 ### Camera settings (M)
 
-- 🚧 **Aperture, shutter, ISO, WB from the app** — Exposure panel and `dragonslayer settings` CLI, plus image format (to switch on RAW+JPEG). Read on connect and after each change, never polled. Needs verifying on real bodies (GH5, 100D): config names differ per driver.
+- ✅ **Aperture, shutter, ISO, WB from the app** — Exposure panel and `dragonslayer settings` CLI, plus image format (to switch on RAW+JPEG). Read on connect and after each change, never polled. Verified on the Canon 100D; the GH5 still needs checking (config names differ per driver).
 - 🎯 **Focus assist** — magnify a region of live view; edge peaking overlay.
 - 🎯 **Focus stacking** — capture N frames at stepped focus positions, compile with Helicon Focus / focus-stack.
 - 🎯 **Exposure bracketing** — three-shot bracket per frame for later HDR merge.
@@ -200,13 +207,12 @@ Recommendation: start with **Continuity Camera on macOS** — free, uses existin
 Timeline strip. Playback at project fps. Loop range. Focus mode.
 _Delivers: makes the app usable for actual shooting sessions instead of just capturing._
 
-**0.3.0 — UI refresh**
-Custom theme, icons, typography, empty states, focus mode polish.
-_Delivers: doesn't look like a Rust prototype anymore._
+**0.3.0 — Camera control + reliability** *(shipped: camera settings in-app, interval capture, compile progress, camera diagnosis, minimal view, Canon 100D tested, CI builds for both platforms)*
+_Delivers: usable without touching the camera during a shoot, and camera problems explain themselves._
 
-**0.4.0 — Camera control + focus assist**
-Aperture / shutter / ISO / WB in-app. Magnify + peaking. Grid overlays.
-_Delivers: usable without touching the camera during a shoot._
+**0.4.0 — Focus assist + UI polish**
+Magnify + peaking. Grid overlays. Typography, empty states, loop range.
+_Delivers: nail focus from the app; doesn't look like a Rust prototype anymore._
 
 **0.5.0 — Phone as camera (macOS Continuity)**
 AVFoundation backend, iPhone via Continuity Camera. Matches Stop Motion Studio's core value prop.
@@ -218,7 +224,7 @@ _Delivers: dialogue lip-sync workflow, professional shot management._
 
 **0.7.0+** — motion control, DMX, chroma key, multi-angle capture, cloud review.
 
-**Distribution (any release)** — signed + notarised Mac build (needs a paid Apple Developer account; removes the first-launch "Open Anyway" step), Intel Mac build, and Mac + Windows zips on the same release.
+**Distribution (any release)** — signed + notarised Mac build (needs a paid Apple Developer account, US$99/year; removes the first-launch "Open Anyway" step) and an Intel Mac build. Mac + Windows zips on the same release is done: GitHub Actions builds both.
 
 ---
 

@@ -36,6 +36,8 @@ enum Cmd {
     },
     /// List detected cameras and what they support.
     Cameras,
+    /// Check the USB connection, the Windows driver, and whether the camera answers.
+    Diagnose,
     /// Show the camera's exposure settings, or change one.
     Settings {
         /// Setting to change; omit to list all.
@@ -154,6 +156,7 @@ fn run(cli: Cli) -> Result<()> {
         }
         Cmd::Scene { action } => scene(action)?,
         Cmd::Cameras => cameras(&*backend(mock)?)?,
+        Cmd::Diagnose => diagnose(&*backend(mock)?),
         Cmd::Settings { setting, value, camera } => {
             settings_cmd(&*backend(mock)?, setting.map(Into::into), value.as_deref(), camera.as_deref())?
         }
@@ -182,7 +185,16 @@ fn run(cli: Cli) -> Result<()> {
                 fps_override: fps,
                 ffmpeg: None,
             };
-            let out = compile::compile(&p, scene.as_deref(), &settings)?;
+            let mut last = -1;
+            let out = compile::compile_with_progress(&p, scene.as_deref(), &settings, |f| {
+                let pct = (f * 100.0) as i32;
+                if pct != last {
+                    last = pct;
+                    eprint!("\rCompiling… {pct:>3}%");
+                }
+            });
+            eprintln!();
+            let out = out?;
             for w in &out.warnings {
                 eprintln!("warning: {w}");
             }
@@ -267,6 +279,70 @@ fn cameras(backend: &dyn CameraBackend) -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn diagnose(backend: &dyn CameraBackend) {
+    use dragonslayer_camera::diag::{self, Driver};
+    println!("USB");
+    match diag::scan() {
+        None => println!("  -  driver checks are Windows-only"),
+        Some(Err(e)) => println!("  ?  couldn't check USB devices: {e}"),
+        Some(Ok(cams)) if cams.is_empty() => {
+            println!("  x  no camera seen on USB: camera on? data cable (not charge-only)? USB mode PC/PTP?")
+        }
+        Some(Ok(cams)) => {
+            for c in cams {
+                match &c.driver {
+                    Driver::Usable(d) => println!("  ok {}: driver {d}", c.name),
+                    Driver::WindowsOwn(d) => println!(
+                        "  x  {} is on Windows' own driver ({d}): this USB port needs Zadig (WinUSB), \
+                         or move the camera back to the port you set up",
+                        c.name
+                    ),
+                }
+                match &c.hub {
+                    Some(hub) => {
+                        println!("  !  plugged into a hub ({hub}); plug straight into the computer if it times out")
+                    }
+                    None => println!("  ok plugged straight into the computer"),
+                }
+            }
+        }
+    }
+
+    println!("Camera library");
+    let devices = match backend.enumerate() {
+        Ok(d) => d,
+        Err(e) => return println!("  x  {e}"),
+    };
+    let Some(device) = devices.into_iter().next() else {
+        return println!("  x  no camera found");
+    };
+    println!("  ok found {} [{}]", device.display_name(), device.port);
+    let mut cam = match backend.open(&device) {
+        Ok(c) => c,
+        Err(e) => return println!("  x  couldn't open it: {e}"),
+    };
+    match cam.settings() {
+        Ok(s) if !s.is_empty() => println!("  ok answers commands ({} settings read)", s.len()),
+        Ok(_) => println!("  ?  answers, but reports no settings"),
+        Err(e) => println!("  x  doesn't answer: {e} (quit DragonSlayer, power-cycle the camera, try again)"),
+    }
+    if cam.capabilities().live_view {
+        match cam.start_live_view() {
+            Ok(stream) => match stream.next_timeout(Duration::from_secs(5)) {
+                Ok(Some(_)) => println!("  ok live view frames arriving"),
+                Ok(None) => println!("  x  no live view frame within 5 s"),
+                Err(_) => {
+                    println!("  x  live view failed (Canon: dial on M, Live View shooting enabled; check the battery)")
+                }
+            },
+            Err(e) => println!("  x  live view didn't start: {e}"),
+        }
+    } else {
+        println!("  -  no live view on this model");
+    }
+    cam.close().ok();
 }
 
 fn settings_cmd(

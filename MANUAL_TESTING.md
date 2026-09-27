@@ -226,6 +226,12 @@ Windows driver.
       the dial to **P**/**A**: some settings become read-only (greyed out) rather than erroring.
       Change settings ~20 times with live view running: no wedge. Record any setting that
       is missing for this model and the name `gphoto2 --list-config` uses for it.
+- [ ] **6.10b Camera diagnosis.** With the camera working, **Help → Diagnose camera…**
+      shows all green: driver WinUSB, plugged straight into the computer, camera answers,
+      live view frames arriving. `DragonSlayer-CLI.cmd diagnose` (app closed) prints the same
+      as `ok` lines. Then move the camera to a USB port Zadig hasn't been run on: within ~10 s
+      the status bar says *this USB port needs driver setup* with the Set up USB driver button,
+      and the diagnosis marks the driver red. Through a hub, the diagnosis warns about the hub.
 - [ ] **6.11 Transaction record.** With the debug build option on
       (`--features gphoto2,ptp-record`, once implemented), run 6.3 with the record file
       set. A `<camera>.ptprec` file is written; replay it in CI without hardware and

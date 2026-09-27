@@ -7,7 +7,7 @@
 </p>
 
 <p align="center">
-  <b>Status:</b> 0.2.1-beta &nbsp;·&nbsp;
+  <b>Status:</b> 0.3.0-beta &nbsp;·&nbsp;
   <b>Licence:</b> MIT &nbsp;·&nbsp;
   <b>Support:</b> none (community only)
 </p>
@@ -83,7 +83,9 @@ DragonSlayer is deliberately kept small: it does one job (capture + compile) and
 - **Two modes** — *Capture* (live view, Space captures) and *Preview* (review what you've shot, no capturing); Tab flips between them
 - **Filmstrip timeline** of clickable thumbnails, arrow-key frame stepping and playback at the scene's frame rate
 - **Picture-in-picture** (optional) — the other view (live or last frame) in the corner; off by default, turn it on in File → Preferences
-- **Dockable panels** — Scenes, Viewer, Timeline, Camera, Onion Skin and Export; drag any tab to rearrange
+- **Camera settings in the app** — aperture, shutter, ISO, white balance and image format (RAW + JPEG) from the Exposure panel, so you never touch the camera between frames
+- **Interval capture** — N frames, S seconds apart, for time-lapses; stops cleanly if the camera drops
+- **Dockable panels** — Scenes, Viewer, Timeline, Camera, Exposure, Onion Skin and Export; drag any tab to rearrange
 - **Three themes** — Dark Teal, Dark Amber, Light (Preferences → Theme)
 - **Minimal view** (F) — the live view fills the screen, with a small floating bar for Capture, onion skin and exit that fades when the mouse is still
 - **Fill or fit** — the picture fills the viewer edge to edge (cropping the overhang), or shows the whole frame with bars (Preferences → Viewer)
@@ -91,11 +93,12 @@ DragonSlayer is deliberately kept small: it does one job (capture + compile) and
 - **Scenes** with independent frame rates, drag-to-reorder, rename, per-scene trash
 - **Never lose a frame** — every capture is a filesystem transaction, replayed on the next launch if the app crashes mid-shot
 - **RAW + JPEG** kept side by side when the camera supports it
-- **Compile** to H.264 MP4 or ProRes 422 MOV, source resolution / 4K / 1080p, crop or fit
+- **Compile** to H.264 MP4 or ProRes 422 MOV, source resolution / 4K / 1080p, crop or fit, with a progress bar and time remaining
 - **Prevents system sleep** during a shooting session
 - **Windows driver setup built in** — bundles Zadig for the one-time WinUSB swap
 - **Self-contained Mac app** — download, drag to Applications, done; camera drivers and ffmpeg are inside
-- **Extensive in-app help** with Windows/macOS-aware troubleshooting for wedged cameras, driver issues and vendor-specific quirks
+- **Camera diagnosis** (Help → Diagnose camera…) — checks the USB connection, whether Windows has the camera on the right driver for that port, hubs, and whether the camera answers and sends live view, with the fix for anything that fails. While no camera connects, DragonSlayer also spots a port that needs Zadig by itself.
+- **Extensive in-app help** with Windows/macOS-aware troubleshooting, plus an Advanced camera troubleshooting tab
 - **egui + wgpu** — pure Rust, cross-platform, no Electron
 
 ## Quick start
@@ -106,7 +109,8 @@ DragonSlayer is deliberately kept small: it does one job (capture + compile) and
 2. **Plug in your camera** on USB, turn it on, set it to *PC* / *PC(Tether)* / *PTP* mode.
 3. Double-click `DragonSlayer.cmd` in the unzipped folder (from a source build: `bin\dragonslayer-app.cmd`).
 4. If Windows is still using its own driver, click **Set up USB driver…** in the top right. The bundled Zadig walks through a one-time swap to WinUSB (nothing on the camera changes — only which Windows driver claims the USB port).
-5. Click **New project…**, capture with **Space**, delete with **Backspace**, hit **H** any time for help.
+   **The swap belongs to that USB port.** Use the same port every time — plug the camera into a different one and Windows puts its own driver back, so you'd need Zadig again. Plug straight into the computer rather than a hub; hubs can make the camera time out.
+5. Put the camera's **mode dial on M** (auto modes lock settings and make the film flicker), then click **New project…**, capture with **Space**, delete with **Backspace**, hit **H** any time for help.
 
 ### macOS
 
@@ -148,7 +152,7 @@ Prefer to build it yourself? See [Build from source](#build-from-source).
 DragonSlayer uses libgphoto2's PTP driver, which supports **hundreds** of cameras — most Canon EOS, Nikon, Sony Alpha, Panasonic Lumix, Fujifilm and OM System/Olympus bodies made in the last 15 years.
 
 - **Reference camera:** Panasonic Lumix GH5 — tested end to end on Windows and macOS.
-- **Second test camera:** Canon EOS 100D.
+- **Canon EOS 100D** — thoroughly tested on Windows: live view, capture, RAW + JPEG, camera settings, interval capture and compile.
 - **Everything else:** should work; please open an issue if it does or doesn't.
 
 Full list: <http://www.gphoto.org/proj/libgphoto2/support.php>
@@ -199,6 +203,16 @@ cargo build --release --features gphoto2 -p dragonslayer-cli -p dragonslayer-app
 
 **Fresh Mac?** Full setup guide — Homebrew, git, SSH keys, editor setup, common macOS build errors — in [`MAC-DEV-SETUP.md`](MAC-DEV-SETUP.md).
 
+### Automatic builds and releases
+
+Every push to `main` (and every pull request) builds the Windows and macOS zips on GitHub Actions and runs the tests. The zips are on the run's page (**Actions** → the run → **Artifacts**) for 30 days — handy for trying a change on the other OS. Nothing is published.
+
+A release only happens when you ask for one:
+
+1. Bump `version` in the root `Cargo.toml` (e.g. `0.3.0-beta`) and push.
+2. **Actions** → **Build Windows + macOS** → **Run workflow** → type the version with a `v` (e.g. `v0.3.0-beta`).
+3. Both platforms build, then the tag and the GitHub release are created with both zips attached. Versions with a `-` suffix are marked pre-release. If the version doesn't match `Cargo.toml`, nothing is published.
+
 ## Command line
 
 The CLI has the same operations as the app — useful for testing, scripting or headless captures.
@@ -208,7 +222,11 @@ dragonslayer new MyFilm --name "My Film"       # create a project
 dragonslayer scene add MyFilm "Chase"          # add scene
 dragonslayer scene list MyFilm                 # list scenes
 dragonslayer cameras                           # what libgphoto2 sees
+dragonslayer diagnose                          # USB driver, hub, camera answers, live view
 dragonslayer capture MyFilm sc010 --count 12   # shoot 12 frames
+dragonslayer capture MyFilm sc010 --count 60 --interval 5   # time-lapse: 60 frames, 5 s apart
+dragonslayer settings                          # aperture, shutter, ISO, WB, format
+dragonslayer settings iso 400                  # change one (value exactly as listed)
 dragonslayer delete-last MyFilm sc010          # undo last (to trash)
 dragonslayer compile MyFilm --resolution 1080p # render project
 dragonslayer compile MyFilm sc010 --format prores --resolution 4k --crop

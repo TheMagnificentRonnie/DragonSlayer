@@ -298,7 +298,7 @@
               -- FREE STOP-MOTION FOR REAL CAMERAS --
 </pre>
       <div class="meta">
-        <span>ver <b>0.2.1-BETA</b></span>
+        <span>ver <b>0.3.0-BETA</b></span>
         <span>MIT license</span>
         <span>Windows &amp; macOS</span>
         <span>FREEWARE</span>
@@ -340,8 +340,11 @@
   <div class="card"><div class="glyph">▓▒░</div><h3>Scenes, ordered</h3><p>Drag to reorder, rename inline, per-scene fps. IDs like sc010 so you can insert sc015.</p></div>
   <div class="card"><div class="glyph">▲▽▲▽</div><h3>Never lose a frame</h3><p>Every capture is a filesystem transaction. Journal-based recovery. Crash and reboot? Fine.</p></div>
   <div class="card"><div class="glyph">▚▚▚</div><h3>MP4 &amp; ProRes</h3><p>H.264 for playing anywhere, ProRes 422 for editing. Source / 4K / 1080p, crop or fit.</p></div>
-  <div class="card"><div class="glyph">▓ ▓ ▓</div><h3>Dockable panels</h3><p>Scenes, Viewer, Timeline, Camera, Onion, Export. Grab a tab, drop it anywhere.</p></div>
+  <div class="card"><div class="glyph">f/ ISO</div><h3>Camera settings</h3><p>Aperture, shutter, ISO, white balance, RAW + JPEG. Set them from the app, never touch the camera mid-shot.</p></div>
+  <div class="card"><div class="glyph">◷ ◶ ◵</div><h3>Interval capture</h3><p>N frames, S seconds apart. Time-lapses of a set build or a slumping puppet.</p></div>
+  <div class="card"><div class="glyph">▓ ▓ ▓</div><h3>Dockable panels</h3><p>Scenes, Viewer, Timeline, Camera, Exposure, Onion, Export. Grab a tab, drop it anywhere.</p></div>
   <div class="card"><div class="glyph">⚙ ⚙ ⚙</div><h3>Windows drivers included</h3><p>Bundles Zadig for a one-click WinUSB swap. In-app button, no rabbit hole.</p></div>
+  <div class="card"><div class="glyph">[✓][✗]</div><h3>Camera diagnosis</h3><p>Checks the USB port's driver, hubs, and whether the camera answers. Tells you the fix. Spots a port that needs Zadig by itself.</p></div>
     <div class="card"><div class="glyph">▣ ▣ ▣</div><h3>Mac app, batteries in</h3><p>Download, drag to Applications, shoot. Camera drivers and ffmpeg ride inside. Apple Silicon.</p></div>
   <div class="card"><div class="glyph">◉ ◎ ◉</div><h3>Three themes</h3><p>Dark teal (default), dark amber, or light. Preferences → Theme. Swap live.</p></div>
 </div>
@@ -350,7 +353,7 @@
 <p>libgphoto2 covers hundreds of DSLR and mirrorless bodies made in the last 15 years. Most Canon EOS, Nikon, Sony Alpha, Panasonic Lumix, Fujifilm and OM System / Olympus.</p>
 <ul class="plain">
   <li>Reference camera: <b>Panasonic Lumix GH5</b></li>
-  <li>Second test camera: <b>Canon EOS 100D</b></li>
+  <li><b>Canon EOS 100D</b> — thoroughly tested on Windows</li>
   <li>Everything else <em>should</em> work — open an issue with your model and results.</li>
 </ul>
 <p style="margin-top:0.6rem"><a href="http://www.gphoto.org/proj/libgphoto2/support.php">&gt; Full libgphoto2 support list</a></p>
@@ -383,8 +386,8 @@
   <li><b>Download</b> <code>dragonslayer-*-windows-x64.zip</code> from the <a href="https://github.com/TheMagnificentRonnie/DragonSlayer/releases/latest">latest release</a>. Unzip anywhere.</li>
   <li><b>Plug in your camera</b> on USB. Turn it on. Set the USB mode to <code>PC</code>, <code>PC(Tether)</code> or <code>PTP</code>.</li>
   <li><b>Run</b> <code>DragonSlayer.cmd</code>.</li>
-  <li><b>If Windows still owns the camera driver</b>, click <code>Set up USB driver…</code> top-right. The bundled Zadig does the one-time WinUSB swap. Nothing on the camera itself changes.</li>
-  <li><b>Click New project</b>, press <kbd>Space</kbd> to capture. Hit <kbd>H</kbd> for in-app help.</li>
+  <li><b>If Windows still owns the camera driver</b>, click <code>Set up USB driver…</code> top-right. The bundled Zadig does the one-time WinUSB swap. Nothing on the camera itself changes. The swap belongs to that USB port: keep using the same one, straight into the computer, not a hub.</li>
+  <li><b>Mode dial on M</b>, click <b>New project</b>, press <kbd>Space</kbd> to capture. Hit <kbd>H</kbd> for in-app help. Camera acting up? <code>Help → Diagnose camera…</code></li>
 </ol>
 
 <h2>&gt; Get started · macOS</h2>

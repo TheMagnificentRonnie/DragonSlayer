@@ -2,8 +2,9 @@
 
 use std::fmt::Write as _;
 use std::fs;
+use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 use time::macros::format_description;
 use time::OffsetDateTime;
@@ -104,7 +105,18 @@ pub fn plan(project: &Project, scene: Option<&str>, fps_override: Option<u32>) -
 }
 
 pub fn compile(project: &Project, scene: Option<&str>, settings: &Settings) -> Result<Output> {
+    compile_with_progress(project, scene, settings, |_| {})
+}
+
+/// Like [`compile`], calling `on_progress` with 0.0–1.0 as ffmpeg works through the film.
+pub fn compile_with_progress(
+    project: &Project,
+    scene: Option<&str>,
+    settings: &Settings,
+    mut on_progress: impl FnMut(f32),
+) -> Result<Output> {
     let (shots, warnings) = plan(project, scene, settings.fps_override)?;
+    let total_secs: f64 = shots.iter().map(|s| s.seconds).sum();
     let exports = paths::exports_dir(&project.root);
     fs::create_dir_all(&exports).at(&exports)?;
 
@@ -123,19 +135,64 @@ pub fn compile(project: &Project, scene: Option<&str>, settings: &Settings) -> R
     atomic::write_atomic(&list, concat_list(&shots).as_bytes())?;
 
     let ffmpeg = settings.ffmpeg.clone().unwrap_or_else(|| "ffmpeg".into());
-    let result = Command::new(&ffmpeg)
-        .args(ffmpeg_args(&list, &out, settings.fps_override.unwrap_or(project.file.fps), settings))
-        .output();
+    let result = run_ffmpeg(
+        &ffmpeg,
+        ffmpeg_args(&list, &out, settings.fps_override.unwrap_or(project.file.fps), settings),
+        total_secs,
+        &mut on_progress,
+    );
     let _ = fs::remove_file(&list);
+    result?;
+    on_progress(1.0);
+    Ok(Output { path: out, frames: shots.len(), warnings })
+}
 
-    let output = result.map_err(|e| Error::Ffmpeg(format!("could not run {}: {e}", ffmpeg.display())))?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
+fn run_ffmpeg(ffmpeg: &Path, args: Vec<String>, total_secs: f64, on_progress: &mut impl FnMut(f32)) -> Result<()> {
+    let mut child = Command::new(ffmpeg)
+        .args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| Error::Ffmpeg(format!("could not run {}: {e}", ffmpeg.display())))?;
+
+    // Drain stderr on its own thread so a chatty ffmpeg can't block on a full pipe.
+    let mut stderr_pipe = child.stderr.take().expect("piped");
+    let stderr = std::thread::spawn(move || {
+        let mut s = String::new();
+        let _ = stderr_pipe.read_to_string(&mut s);
+        s
+    });
+    if let Some(stdout) = child.stdout.take() {
+        for line in BufReader::new(stdout).lines().map_while(std::result::Result::ok) {
+            if let Some(p) = progress_from_line(&line, total_secs) {
+                on_progress(p);
+            }
+        }
+    }
+
+    let status = child.wait().map_err(|e| Error::Ffmpeg(e.to_string()))?;
+    let stderr = stderr.join().unwrap_or_default();
+    if !status.success() {
         let tail: Vec<&str> = stderr.lines().rev().take(8).collect();
         let tail: Vec<&str> = tail.into_iter().rev().collect();
         return Err(Error::Ffmpeg(tail.join("\n")));
     }
-    Ok(Output { path: out, frames: shots.len(), warnings })
+    Ok(())
+}
+
+/// Reads one line of ffmpeg's `-progress` output. `out_time_ms` is really microseconds,
+/// same as `out_time_us`; older ffmpeg builds only print the former.
+pub fn progress_from_line(line: &str, total_secs: f64) -> Option<f32> {
+    let (key, value) = line.trim().split_once('=')?;
+    match key {
+        "out_time_us" | "out_time_ms" if total_secs > 0.0 => {
+            let us: f64 = value.parse().ok()?;
+            Some((us / 1e6 / total_secs).clamp(0.0, 1.0) as f32)
+        }
+        "progress" if value == "end" => Some(1.0),
+        _ => None,
+    }
 }
 
 /// ffmpeg concat-demuxer script. The last file is repeated so its duration is honoured.
@@ -173,7 +230,7 @@ pub fn ffmpeg_args(list: &Path, out: &Path, fps: u32, settings: &Settings) -> Ve
     filters.push(format!("fps={fps}"));
 
     let mut args: Vec<String> = [
-        "-hide_banner", "-loglevel", "error", "-n",
+        "-hide_banner", "-loglevel", "error", "-nostats", "-progress", "pipe:1", "-n",
         "-f", "concat", "-safe", "0",
     ]
     .iter()

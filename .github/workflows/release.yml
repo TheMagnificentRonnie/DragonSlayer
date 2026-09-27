@@ -1,13 +1,27 @@
-name: Build & attach release assets
+name: Build Windows + macOS
 
+# Every push to main (and every PR) builds both zips. They're kept on the run page
+# (Actions tab -> the run -> Artifacts) and nothing is published.
+#
+# A release only happens when you ask for one: Actions -> "Build Windows + macOS" ->
+# Run workflow -> type the version (e.g. v0.3.0-beta). That builds, then creates the
+# tag and the GitHub release with both zips attached. The version must match
+# `version` in Cargo.toml.
 on:
   push:
-    tags: ["v*"]
+    branches: [main]
+  pull_request:
   workflow_dispatch:
     inputs:
-      tag:
-        description: "Existing tag to build and upload assets to (e.g. v0.2.1-beta)"
-        required: true
+      release:
+        description: "Release version to publish, e.g. v0.3.0-beta (must match Cargo.toml). Leave empty to just build."
+        required: false
+        default: ""
+
+# A newer push to the same branch makes an older build pointless. Release runs always finish.
+concurrency:
+  group: build-${{ github.ref }}-${{ github.event.inputs.release }}
+  cancel-in-progress: ${{ github.event.inputs.release == '' }}
 
 jobs:
   # ---------------------------------------------------------------- Windows
@@ -62,14 +76,12 @@ jobs:
           export PATH="/c/Users/runneradmin/.cargo/bin:$PATH"
           bash scripts/package-windows.sh
 
-      - name: Upload asset to the release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          TAG="${GITHUB_REF##refs/tags/}"
-          if [ -z "$TAG" ] || [ "$TAG" = "$GITHUB_REF" ]; then TAG="${{ github.event.inputs.tag }}"; fi
-          echo "Uploading to tag $TAG"
-          gh release upload "$TAG" target/dist/dragonslayer-*-windows-x64.zip --clobber
+      - name: Keep zip on the run page
+        uses: actions/upload-artifact@v4
+        with:
+          name: dragonslayer-windows-x64
+          path: target/dist/dragonslayer-*-windows-x64.zip
+          retention-days: 30
 
   # ------------------------------------------------------------- macOS arm64
   # scripts/package-macos.sh is Apple Silicon–only for now (its bundled ffmpeg
@@ -90,14 +102,50 @@ jobs:
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
+      - name: Test
+        run: cargo test --workspace
+
       - name: Build & bundle
         run: bash scripts/package-macos.sh
 
-      - name: Upload asset to the release
+      - name: Keep zip on the run page
+        uses: actions/upload-artifact@v4
+        with:
+          name: dragonslayer-macos-arm64
+          path: target/dist/dragonslayer-*-macos-arm64.zip
+          retention-days: 30
+
+  # ------------------------------------------------------------- release (manual only)
+  release:
+    name: Publish release ${{ github.event.inputs.release }}
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.release != ''
+    needs: [windows, macos]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check the version matches Cargo.toml
+        run: |
+          WANT="${{ github.event.inputs.release }}"
+          HAVE="v$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
+          if [ "$WANT" != "$HAVE" ]; then
+            echo "::error::Asked to release $WANT but Cargo.toml says $HAVE. Bump the version in Cargo.toml, push, then run this again."
+            exit 1
+          fi
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create tag + release with both zips
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG="${GITHUB_REF##refs/tags/}"
-          if [ -z "$TAG" ] || [ "$TAG" = "$GITHUB_REF" ]; then TAG="${{ github.event.inputs.tag }}"; fi
-          echo "Uploading to tag $TAG"
-          gh release upload "$TAG" target/dist/dragonslayer-*-macos-arm64.zip --clobber
+          TAG="${{ github.event.inputs.release }}"
+          PRE=""
+          case "$TAG" in *-*) PRE="--prerelease" ;; esac
+          ls -la dist
+          gh release create "$TAG" dist/*.zip --target "$GITHUB_SHA" --title "DragonSlayer $TAG" --generate-notes $PRE

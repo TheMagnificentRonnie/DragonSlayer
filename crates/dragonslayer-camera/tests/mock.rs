@@ -232,3 +232,53 @@ fn readonly_setting_cannot_be_changed() {
     assert!(wb.readonly);
     assert!(cam.set_setting(SettingKind::WhiteBalance, "Tungsten").is_err());
 }
+
+// ------------------------------------------------------------ USB diagnosis
+
+#[test]
+fn diag_flags_a_camera_on_windows_own_driver_as_needing_zadig() {
+    use dragonslayer_camera::diag::{parse_windows, Driver};
+    // What the 100D looked like after moving to a port Zadig wasn't run on.
+    let json = r#"[{"id":"USB\\VID_04A9&PID_3270\\9&2E9F91BC&0&3","name":"Canon EOS 100D","class":"WPD","service":"WUDFWpdMtp","parent":"USB Root Hub (USB 3.0)"}]"#;
+    let cams = parse_windows(json).unwrap();
+    assert_eq!(cams.len(), 1);
+    assert_eq!(cams[0].vendor, "Canon");
+    assert_eq!(cams[0].driver, Driver::WindowsOwn("WUDFWpdMtp".into()));
+    assert!(!cams[0].driver.usable());
+    assert_eq!(cams[0].hub, None, "root hub = plugged into the computer");
+}
+
+#[test]
+fn diag_accepts_winusb_and_reports_the_hub() {
+    use dragonslayer_camera::diag::parse_windows;
+    let json = r#"[{"id":"USB\\VID_04A9&PID_3270\\9&2E9F91BC&0&3","name":"Canon Digital Camera","class":"USBDevice","service":"WinUSB","parent":"Generic USB Hub"}]"#;
+    let cams = parse_windows(json).unwrap();
+    assert!(cams[0].driver.usable());
+    assert_eq!(cams[0].hub.as_deref(), Some("Generic USB Hub"));
+}
+
+#[test]
+fn diag_ignores_printers_unknown_vendors_and_empty_output() {
+    use dragonslayer_camera::diag::parse_windows;
+    let json = r#"[
+        {"id":"USB\\VID_04A9&PID_1827\\X","name":"Canon TS5000 series","class":"Printer","service":"usbprint","parent":"USB Root Hub"},
+        {"id":"USB\\VID_1234&PID_0001\\Y","name":"Something","class":"WPD","service":"WUDFWpdMtp","parent":"USB Root Hub"},
+        {"id":"USB\\VID_04DA&PID_2382\\Z","name":null,"class":"WPD","service":"WUDFWpdMtp","parent":null}
+    ]"#;
+    let cams = parse_windows(json).unwrap();
+    assert_eq!(cams.len(), 1, "only the Panasonic is a camera: {cams:?}");
+    assert_eq!(cams[0].name, "Panasonic camera");
+    assert!(parse_windows("").unwrap().is_empty());
+    assert!(parse_windows("[]").unwrap().is_empty());
+    assert!(parse_windows("not json").is_err());
+}
+
+#[test]
+#[ignore = "talks to this machine's USB devices; run with --ignored"]
+fn diag_scan_runs_on_this_machine() {
+    let result = dragonslayer_camera::diag::scan();
+    println!("{result:?}");
+    if let Some(r) = result {
+        r.unwrap();
+    }
+}

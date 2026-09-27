@@ -152,6 +152,9 @@ fn worker(wanted: DeviceInfo, cmds: Receiver<Cmd>, ready: Sender<Result<Capabili
             .find(|d| d.port == wanted.port)
             .ok_or(CameraError::NotFound)?;
         let camera = ctx.get_camera(&desc).wait().map_err(open_error)?;
+        // get_camera doesn't claim the USB interface; the first real request does. Make one
+        // now so a wrong Windows driver is reported here instead of as a dead live view later.
+        camera.summary().map_err(open_error)?;
         let ops = camera.abilities().camera_operations();
         // RAW+JPEG can't be known until a capture returns two files; `capture` updates it.
         let caps = Capabilities {

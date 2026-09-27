@@ -9,6 +9,7 @@ use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender, TrySendError
 use std::sync::Arc;
 use std::time::Duration;
 
+pub mod diag;
 pub mod mock;
 #[cfg(feature = "gphoto2")]
 pub mod gphoto;
