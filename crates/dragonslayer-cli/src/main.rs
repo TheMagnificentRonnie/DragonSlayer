@@ -134,6 +134,8 @@ enum SettingArg {
     Iso,
     Wb,
     Format,
+    /// Where the camera stores shots: its memory or the memory card.
+    Target,
 }
 
 impl From<SettingArg> for SettingKind {
@@ -144,6 +146,7 @@ impl From<SettingArg> for SettingKind {
             SettingArg::Iso => SettingKind::Iso,
             SettingArg::Wb => SettingKind::WhiteBalance,
             SettingArg::Format => SettingKind::ImageFormat,
+            SettingArg::Target => SettingKind::CaptureTarget,
         }
     }
 }

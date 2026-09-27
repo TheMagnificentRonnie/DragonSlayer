@@ -118,11 +118,20 @@ pub enum SettingKind {
     Iso,
     WhiteBalance,
     ImageFormat,
+    /// Where the camera stores each shot: its own memory (gone after download) or the
+    /// memory card (a second copy of every frame).
+    CaptureTarget,
 }
 
 impl SettingKind {
-    pub const ALL: [SettingKind; 5] =
-        [SettingKind::Aperture, SettingKind::Shutter, SettingKind::Iso, SettingKind::WhiteBalance, SettingKind::ImageFormat];
+    pub const ALL: [SettingKind; 6] = [
+        SettingKind::Aperture,
+        SettingKind::Shutter,
+        SettingKind::Iso,
+        SettingKind::WhiteBalance,
+        SettingKind::ImageFormat,
+        SettingKind::CaptureTarget,
+    ];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -131,8 +140,15 @@ impl SettingKind {
             SettingKind::Iso => "ISO",
             SettingKind::WhiteBalance => "White balance",
             SettingKind::ImageFormat => "Image format",
+            SettingKind::CaptureTarget => "Save photos to",
         }
     }
+}
+
+/// For [`SettingKind::CaptureTarget`]: the choice that keeps shots on the memory card
+/// ("Memory card" on Canon; other drivers word it differently).
+pub fn card_choice(choices: &[String]) -> Option<&str> {
+    choices.iter().map(String::as_str).find(|c| c.to_ascii_lowercase().contains("card"))
 }
 
 /// Current value and the values the camera will accept right now. Choices depend on

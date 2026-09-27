@@ -38,6 +38,24 @@ impl ImportDialog {
     pub(super) fn is_running(&self) -> bool {
         self.running.is_some()
     }
+
+    #[cfg(test)]
+    pub(super) fn report(&self) -> Option<&Report> {
+        self.report.as_ref()
+    }
+
+    #[cfg(test)]
+    pub(super) fn found(&self) -> Option<usize> {
+        match &self.plan {
+            Some(Ok(p)) => Some(p.frames.len()),
+            _ => None,
+        }
+    }
+
+    #[cfg(test)]
+    pub(super) fn set_into_active(&mut self, yes: bool) {
+        self.into_active = yes;
+    }
 }
 
 impl DragonSlayerApp {
@@ -52,17 +70,17 @@ impl DragonSlayerApp {
         else {
             return;
         };
+        self.open_import(vec![folder], ctx);
+    }
+
+    /// Opens the dialog on `sources` and starts scanning them.
+    pub(super) fn open_import(&mut self, sources: Vec<PathBuf>, ctx: &egui::Context) {
         self.interval = None;
-        self.import = ImportDialog {
-            open: true,
-            sources: vec![folder],
-            new_name: "Imported".into(),
-            ..Default::default()
-        };
+        self.import = ImportDialog { open: true, sources, new_name: "Imported".into(), ..Default::default() };
         self.scan_import(ctx);
     }
 
-    fn scan_import(&mut self, ctx: &egui::Context) {
+    pub(super) fn scan_import(&mut self, ctx: &egui::Context) {
         let d = &mut self.import;
         d.plan = None;
         let scene: Option<Scene> = if d.into_active {

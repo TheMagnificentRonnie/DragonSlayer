@@ -97,8 +97,8 @@ pub fn scan(paths: &[PathBuf], order: Order, scene: Option<&Scene>) -> Result<Pl
         None => HashSet::new(),
     };
     let mut frames: Vec<Candidate> = Vec::new();
-    for (key, c) in groups {
-        if done.contains(&key) {
+    for c in groups.into_values() {
+        if done.contains(&c.source.to_lowercase()) {
             plan.already_imported += 1;
         } else {
             frames.push(c);
@@ -151,9 +151,11 @@ fn walk(path: &Path, groups: &mut BTreeMap<String, Candidate>, plan: &mut Plan) 
         _ => stem,
     };
     let taken = meta.modified().unwrap_or(SystemTime::UNIX_EPOCH);
-    let c = groups
-        .entry(source.to_lowercase())
-        .or_insert_with(|| Candidate { source, files: Vec::new(), taken });
+    // Group by the real folder, not just its name: two cards scanned together can both
+    // have 100CANON/IMG_0001, and those are different photos.
+    let dir = path.parent().map(|p| p.to_string_lossy().to_lowercase()).unwrap_or_default();
+    let key = format!("{dir}/{}", stem_lower(path));
+    let c = groups.entry(key).or_insert_with(|| Candidate { source, files: Vec::new(), taken });
     c.taken = c.taken.min(taken);
     c.files.push(path.to_owned());
 }
@@ -224,4 +226,8 @@ pub fn looks_truncated(path: &Path) -> bool {
         Ok(!tail.windows(2).any(|w| w == [0xFF, 0xD9]))
     };
     check().unwrap_or(true)
+}
+
+fn stem_lower(path: &Path) -> String {
+    path.file_stem().map(|s| s.to_string_lossy().to_lowercase()).unwrap_or_default()
 }

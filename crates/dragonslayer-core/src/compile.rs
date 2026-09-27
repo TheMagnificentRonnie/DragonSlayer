@@ -187,8 +187,10 @@ pub fn progress_from_line(line: &str, total_secs: f64) -> Option<f32> {
     let (key, value) = line.trim().split_once('=')?;
     match key {
         "out_time_us" | "out_time_ms" if total_secs > 0.0 => {
-            let us: f64 = value.parse().ok()?;
-            Some((us / 1e6 / total_secs).clamp(0.0, 1.0) as f32)
+            // f64 parses "NaN"/"inf" too, and NaN survives clamp: accept real numbers only.
+            let us: f64 = value.parse().ok().filter(|v: &f64| v.is_finite())?;
+            let p = (us / 1e6 / total_secs).clamp(0.0, 1.0);
+            p.is_finite().then_some(p as f32)
         }
         "progress" if value == "end" => Some(1.0),
         _ => None,

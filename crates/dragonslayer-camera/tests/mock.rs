@@ -109,7 +109,7 @@ fn live_view_delivers_frames_and_stops_when_stream_dropped() {
 
 #[test]
 fn live_view_errors_when_backend_disables_the_capability() {
-    let backend = MockBackend { capabilities: Capabilities { live_view: false, ..MockBackend::default().capabilities } };
+    let backend = MockBackend { capabilities: Capabilities { live_view: false, ..MockBackend::default().capabilities }, ..MockBackend::default() };
     let device = backend.enumerate().unwrap().pop().unwrap();
     let mut cam = backend.open(&device).unwrap();
     // LiveViewStream isn't Debug, so unwrap_err doesn't compile — pattern match instead.
@@ -123,7 +123,7 @@ fn live_view_errors_when_backend_disables_the_capability() {
 
 #[test]
 fn capture_errors_when_backend_disables_the_capability() {
-    let backend = MockBackend { capabilities: Capabilities { capture: false, ..MockBackend::default().capabilities } };
+    let backend = MockBackend { capabilities: Capabilities { capture: false, ..MockBackend::default().capabilities }, ..MockBackend::default() };
     let device = backend.enumerate().unwrap().pop().unwrap();
     let mut cam = backend.open(&device).unwrap();
     let err = cam.capture().unwrap_err();
@@ -137,6 +137,7 @@ fn capture_errors_when_backend_disables_the_capability() {
 fn jpeg_only_configuration_returns_no_raw_file() {
     let backend = MockBackend {
         capabilities: Capabilities { raw_plus_jpeg: false, ..MockBackend::default().capabilities },
+        ..MockBackend::default()
     };
     let device = backend.enumerate().unwrap().pop().unwrap();
     let mut cam = backend.open(&device).unwrap();
@@ -281,4 +282,73 @@ fn diag_scan_runs_on_this_machine() {
     if let Some(r) = result {
         r.unwrap();
     }
+}
+
+#[test]
+fn unplugging_the_mock_ends_live_view_and_fails_captures_until_plugged_back_in() {
+    use std::sync::atomic::Ordering;
+    let backend = MockBackend::default();
+    let device = backend.enumerate().unwrap().pop().unwrap();
+    let mut cam = backend.open(&device).unwrap();
+    let stream = cam.start_live_view().unwrap();
+    assert!(stream.next_timeout(Duration::from_secs(2)).unwrap().is_some());
+
+    backend.unplugged.store(true, Ordering::Relaxed);
+    // The stream ends with Disconnected (possibly after a frame already in flight).
+    let mut ended = false;
+    for _ in 0..50 {
+        if let Err(CameraError::Disconnected) = stream.next_timeout(Duration::from_millis(100)) {
+            ended = true;
+            break;
+        }
+    }
+    assert!(ended, "live view should end when unplugged");
+    assert!(matches!(cam.capture(), Err(CameraError::Disconnected)));
+    assert!(matches!(cam.settings(), Err(CameraError::Disconnected)));
+    assert!(backend.enumerate().unwrap().is_empty());
+    assert!(matches!(backend.open(&device), Err(CameraError::NotFound)));
+
+    backend.unplugged.store(false, Ordering::Relaxed);
+    assert_eq!(backend.enumerate().unwrap().len(), 1);
+    let mut again = backend.open(&device).unwrap();
+    assert!(again.capture().is_ok());
+}
+
+#[test]
+fn stopping_live_view_ends_the_stream() {
+    let backend = MockBackend::default();
+    let device = backend.enumerate().unwrap().pop().unwrap();
+    let mut cam = backend.open(&device).unwrap();
+    let stream = cam.start_live_view().unwrap();
+    assert!(stream.next_timeout(Duration::from_secs(2)).unwrap().is_some());
+    cam.stop_live_view().unwrap();
+    let mut ended = false;
+    for _ in 0..50 {
+        if stream.next_timeout(Duration::from_millis(100)).is_err() {
+            ended = true;
+            break;
+        }
+    }
+    assert!(ended);
+}
+
+#[test]
+fn image_format_setting_decides_which_files_a_shot_produces() {
+    use dragonslayer_camera::SettingKind;
+    let tmp = tempfile::tempdir().unwrap();
+    let mut cam = mock_camera();
+    let kinds = |cam: &mut Box<dyn dragonslayer_camera::Camera>, dir: &std::path::Path| {
+        let mut k: Vec<_> = dragonslayer_camera::shoot(cam.as_mut(), dir).unwrap().into_iter().map(|f| f.kind).collect();
+        k.sort_by_key(|k| format!("{k:?}"));
+        k
+    };
+    assert_eq!(kinds(&mut cam, tmp.path()), [FileKind::Jpeg, FileKind::Raw]);
+    cam.set_setting(SettingKind::ImageFormat, "RAW").unwrap();
+    let d2 = tmp.path().join("2");
+    std::fs::create_dir(&d2).unwrap();
+    assert_eq!(kinds(&mut cam, &d2), [FileKind::Raw]);
+    cam.set_setting(SettingKind::ImageFormat, "Large Fine JPEG").unwrap();
+    let d3 = tmp.path().join("3");
+    std::fs::create_dir(&d3).unwrap();
+    assert_eq!(kinds(&mut cam, &d3), [FileKind::Jpeg]);
 }

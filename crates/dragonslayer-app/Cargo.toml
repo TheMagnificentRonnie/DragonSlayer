@@ -21,5 +21,13 @@ eframe = { version = "0.36", default-features = false, features = ["wgpu", "defa
 egui_dock = "0.21"
 egui-phosphor = "0.14"
 image = { workspace = true }
+jpeg-decoder = "0.3"
+dirs = "6"
+serde = { workspace = true }
+serde_json = { workspace = true }
 rfd = "0.17"
 keepawake = "0.6"
+
+[dev-dependencies]
+egui_kittest = { version = "0.36", features = ["eframe", "wgpu", "snapshot"] }
+tempfile = { workspace = true }

@@ -2,6 +2,8 @@
 
 use std::fs;
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
@@ -10,16 +12,22 @@ use image::{Rgb, RgbImage};
 
 use crate::{
     live_view_channel, Camera, CameraBackend, CameraError, Capabilities, CaptureHandle, CapturedFile, DeviceInfo,
-    LiveFrame, LiveViewSender, LiveViewStream, Result, Setting, SettingKind,
+    LiveFrame, LiveViewStream, Result, Setting, SettingKind,
 };
 
 pub struct MockBackend {
     pub capabilities: Capabilities,
+    /// Set to simulate pulling the USB cable: the camera disappears from enumeration,
+    /// live view ends and captures fail with Disconnected. Clear it to plug back in.
+    pub unplugged: Arc<AtomicBool>,
 }
 
 impl Default for MockBackend {
     fn default() -> Self {
-        Self { capabilities: Capabilities { live_view: true, capture: true, download: true, raw_plus_jpeg: true } }
+        Self {
+            capabilities: Capabilities { live_view: true, capture: true, download: true, raw_plus_jpeg: true },
+            unplugged: Arc::new(AtomicBool::new(false)),
+        }
     }
 }
 
@@ -31,14 +39,18 @@ impl MockBackend {
 
 impl CameraBackend for MockBackend {
     fn enumerate(&self) -> Result<Vec<DeviceInfo>> {
+        if self.unplugged.load(Ordering::Relaxed) {
+            return Ok(Vec::new());
+        }
         Ok(vec![Self::device()])
     }
 
     fn open(&self, device: &DeviceInfo) -> Result<Box<dyn Camera>> {
-        if device.port != "mock:0" {
+        if device.port != "mock:0" || self.unplugged.load(Ordering::Relaxed) {
             return Err(CameraError::NotFound);
         }
         Ok(Box::new(MockCamera {
+            unplugged: self.unplugged.clone(),
             info: Self::device(),
             caps: self.capabilities,
             shots: 0,
@@ -54,8 +66,17 @@ pub struct MockCamera {
     caps: Capabilities,
     shots: u64,
     pending: Option<u64>,
-    live: Option<LiveViewSender>,
+    /// Stop flag of the running live view thread. The thread owns the only sender, so the
+    /// stream sees Disconnected when it ends, as with a real camera.
+    live: Option<Arc<AtomicBool>>,
     settings: Vec<Setting>,
+    unplugged: Arc<AtomicBool>,
+}
+
+impl MockCamera {
+    fn check_plugged(&self) -> Result<()> {
+        if self.unplugged.load(Ordering::Relaxed) { Err(CameraError::Disconnected) } else { Ok(()) }
+    }
 }
 
 /// A plausible manual-mode camera. White balance is read-only to exercise that path in the UI.
@@ -72,6 +93,8 @@ fn default_settings() -> Vec<Setting> {
         s(SettingKind::Iso, "200", &["100", "200", "400", "800", "1600"], false),
         s(SettingKind::WhiteBalance, "Daylight", &["Auto", "Daylight", "Tungsten", "Fluorescent"], true),
         s(SettingKind::ImageFormat, "RAW + Large Fine JPEG", &["Large Fine JPEG", "RAW", "RAW + Large Fine JPEG"], false),
+        // Canon's default when tethered: shots skip the card.
+        s(SettingKind::CaptureTarget, "Internal RAM", &["Internal RAM", "Memory card"], false),
     ]
 }
 
@@ -88,12 +111,17 @@ impl Camera for MockCamera {
         if !self.caps.live_view {
             return Err(CameraError::Unsupported("live view"));
         }
+        self.check_plugged()?;
         self.stop_live_view()?;
-        let (tx, rx) = live_view_channel();
-        let producer = tx.clone();
+        let (producer, rx) = live_view_channel();
+        let stop = Arc::new(AtomicBool::new(false));
+        let (stop_t, unplugged) = (stop.clone(), self.unplugged.clone());
         let start = self.shots;
         thread::spawn(move || {
             for seq in 0.. {
+                if stop_t.load(Ordering::Relaxed) || unplugged.load(Ordering::Relaxed) {
+                    break;
+                }
                 let t = start as f32 + seq as f32 / 15.0;
                 if !producer.send(LiveFrame { seq, jpeg: render(640, 360, t, 70) }) {
                     break;
@@ -101,13 +129,13 @@ impl Camera for MockCamera {
                 thread::sleep(Duration::from_millis(66));
             }
         });
-        self.live = Some(tx);
+        self.live = Some(stop);
         Ok(rx)
     }
 
     fn stop_live_view(&mut self) -> Result<()> {
-        if let Some(tx) = self.live.take() {
-            tx.stop();
+        if let Some(stop) = self.live.take() {
+            stop.store(true, Ordering::Relaxed);
         }
         Ok(())
     }
@@ -116,11 +144,24 @@ impl Camera for MockCamera {
         if !self.caps.capture {
             return Err(CameraError::Unsupported("capture"));
         }
+        self.check_plugged()?;
         self.shots += 1;
         self.pending = Some(self.shots);
         let n = self.shots;
-        let mut files = vec![format!("/store_00010001/DCIM/100MOCK/MOCK{n:04}.JPG")];
-        if self.caps.raw_plus_jpeg {
+        // Honour the Image format setting like a real body: JPEG, RAW, or both.
+        let format = self
+            .settings
+            .iter()
+            .find(|s| s.kind == SettingKind::ImageFormat)
+            .map(|s| s.value.clone())
+            .unwrap_or_default();
+        let raw = self.caps.raw_plus_jpeg && format.contains("RAW");
+        let jpeg = !raw || format.contains("JPEG");
+        let mut files = Vec::new();
+        if jpeg {
+            files.push(format!("/store_00010001/DCIM/100MOCK/MOCK{n:04}.JPG"));
+        }
+        if raw {
             files.push(format!("/store_00010001/DCIM/100MOCK/MOCK{n:04}.RAW"));
         }
         Ok(CaptureHandle(files))
@@ -148,6 +189,7 @@ impl Camera for MockCamera {
     }
 
     fn settings(&mut self) -> Result<Vec<Setting>> {
+        self.check_plugged()?;
         Ok(self.settings.clone())
     }
 

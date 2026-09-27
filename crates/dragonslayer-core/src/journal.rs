@@ -53,12 +53,11 @@ pub fn read(path: &Path) -> Result<Vec<JournalEntry>> {
         Err(e) => return Err(crate::Error::io(path, e)),
     };
     let mut out = Vec::new();
-    for line in BufReader::new(f).lines() {
+    // Byte lines, not `lines()`: a crash mid-append can cut a multi-byte character in half,
+    // and one invalid UTF-8 line must not make the whole scene unreadable.
+    for line in BufReader::new(f).split(b'\n') {
         let line = line.at(path)?;
-        if line.trim().is_empty() {
-            continue;
-        }
-        if let Ok(entry) = serde_json::from_str(&line) {
+        if let Ok(entry) = serde_json::from_slice(&line) {
             out.push(entry);
         }
     }

@@ -102,7 +102,7 @@ const LIGHT: Palette = Palette {
     text_primary: Color32::from_rgb(24, 26, 30),
     text_muted: Color32::from_rgb(88, 94, 105),
     text_dim: Color32::from_rgb(140, 145, 155),
-    accent: Color32::from_rgb(28, 130, 150),
+    accent: Color32::from_rgb(22, 118, 138),
     accent_deep: Color32::from_rgb(16, 96, 116),
     accent_muted: Color32::from_rgb(180, 216, 224),
     on_accent: Color32::from_rgb(248, 253, 255),
@@ -168,7 +168,9 @@ fn build_visuals(p: &Palette, dark: bool) -> Visuals {
     let cr = CornerRadius::same(6);
     let border = Stroke::new(1.0, p.border_subtle);
 
-    v.override_text_color = Some(p.text_primary);
+    // No global override: it beat the selection colour, so a selected toggle in the light
+    // theme had dark text on dark teal. Labels get text_primary via `noninteractive` instead.
+    v.override_text_color = None;
     v.hyperlink_color = p.accent;
     v.faint_bg_color = p.bg_panel;
     v.extreme_bg_color = p.bg_deepest;
@@ -190,7 +192,7 @@ fn build_visuals(p: &Palette, dark: bool) -> Visuals {
         weak_bg_fill: p.bg_app,
         bg_stroke: border,
         corner_radius: cr,
-        fg_stroke: Stroke::new(1.0, p.text_muted),
+        fg_stroke: Stroke::new(1.0, p.text_primary),
         expansion: 0.0,
     };
     v.widgets.inactive = WidgetVisuals {
@@ -209,18 +211,73 @@ fn build_visuals(p: &Palette, dark: bool) -> Visuals {
         fg_stroke: Stroke::new(1.0, p.text_primary),
         expansion: 1.0,
     };
+    // egui also uses the active text colour for every `.strong()` label, so it must read on
+    // the window background. It used to be `on_accent` (dark), which made bold headings
+    // invisible in the dark themes. `accent_muted` keeps pressed buttons readable with it.
     v.widgets.active = WidgetVisuals {
-        bg_fill: p.accent_deep,
-        weak_bg_fill: p.accent_deep,
+        bg_fill: p.accent_muted,
+        weak_bg_fill: p.accent_muted,
         bg_stroke: Stroke::new(1.0, p.accent),
         corner_radius: cr,
-        fg_stroke: Stroke::new(1.0, p.on_accent),
+        fg_stroke: Stroke::new(1.0, p.text_primary),
         expansion: 1.0,
     };
     v.widgets.open = v.widgets.hovered;
 
     v.selection.bg_fill = p.accent_deep;
-    v.selection.stroke = Stroke::new(1.0, p.accent);
+    // Text on the selection (selected scene, the Capture/Preview toggle) must read on
+    // `accent_deep` in every theme; the accent itself was near-invisible on it.
+    v.selection.stroke = Stroke::new(1.0, readable_on(p.accent_deep));
 
     v
+}
+
+/// Near-white or near-black, whichever contrasts more with `bg` (WCAG relative luminance).
+pub fn readable_on(bg: Color32) -> Color32 {
+    let lin = |c: u8| {
+        let c = f32::from(c) / 255.0;
+        if c <= 0.04045 { c / 12.92 } else { ((c + 0.055) / 1.055).powf(2.4) }
+    };
+    let l = 0.2126 * lin(bg.r()) + 0.7152 * lin(bg.g()) + 0.0722 * lin(bg.b());
+    // Contrast against white (L=1) vs black (L=0); pick the larger.
+    if (1.05 / (l + 0.05)) >= ((l + 0.05) / 0.05) { Color32::from_gray(250) } else { Color32::from_gray(15) }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn contrast(a: Color32, b: Color32) -> f32 {
+        let lum = |c: Color32| {
+            let lin = |v: u8| {
+                let v = f32::from(v) / 255.0;
+                if v <= 0.04045 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) }
+            };
+            0.2126 * lin(c.r()) + 0.7152 * lin(c.g()) + 0.0722 * lin(c.b())
+        };
+        let (x, y) = (lum(a), lum(b));
+        (x.max(y) + 0.05) / (x.min(y) + 0.05)
+    }
+
+    /// Every theme: body text, bold text and selected text must be readable (WCAG AA 4.5:1
+    /// for text, 3:1 for the large selected labels).
+    #[test]
+    fn all_themes_have_readable_text() {
+        for (name, p, dark) in [("teal", DARK_TEAL, true), ("amber", DARK_AMBER, true), ("light", LIGHT, false)] {
+            let v = build_visuals(&p, dark);
+            let on_window = v.window_fill;
+            assert!(contrast(v.text_color(), on_window) >= 4.5, "{name}: body text");
+            assert!(contrast(v.strong_text_color(), on_window) >= 4.5, "{name}: bold text on windows");
+            assert!(contrast(v.strong_text_color(), v.panel_fill) >= 4.5, "{name}: bold text on panels");
+            assert!(contrast(v.selection.stroke.color, v.selection.bg_fill) >= 3.0, "{name}: selected text");
+            assert!(v.override_text_color.is_none(), "{name}: an override would beat the selection colour");
+            assert!(contrast(v.weak_text_color(), v.panel_fill) >= 3.0, "{name}: weak text");
+            assert!(contrast(v.widgets.active.text_color(), v.widgets.active.bg_fill) >= 3.0, "{name}: pressed button");
+            assert!(contrast(p.on_accent, p.accent) >= 4.5, "{name}: text on accent buttons");
+            assert!(contrast(p.text_muted, p.bg_panel) >= 4.5, "{name}: muted text");
+            for (what, c) in [("ok", p.ok), ("warn", p.warn), ("error", p.error)] {
+                assert!(contrast(c, p.bg_panel) >= 3.0, "{name}: {what} colour");
+            }
+        }
+    }
 }

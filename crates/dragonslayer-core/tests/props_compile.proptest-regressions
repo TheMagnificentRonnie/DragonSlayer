@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 1b0f2c1417995342fa189ea53a58d435256f45097c8f66d4b950382a8a1b467f # shrinks to key = "out_time_us", value = "NaN", total = inf
+cc e093b1587ff6e603d1a080416bd7736a7ae419fa6c2a71bde88ac66cfabc296f # shrinks to shots = [Shot { path: "'", seconds: 0.0001 }]

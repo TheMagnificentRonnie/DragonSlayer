@@ -10,6 +10,9 @@ use crate::scene::{Scene, SceneFile};
 use crate::{atomic, capture, paths};
 
 pub const FORMAT: &str = "dragonslayer/1";
+/// The same format from before the app was renamed from Stopgap. Opened as-is and
+/// relabelled `FORMAT` the next time the project is saved.
+const LEGACY_FORMATS: [&str; 1] = ["stopgap/1"];
 pub const DEFAULT_FPS: u32 = 12;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -68,9 +71,11 @@ impl Project {
         let root = root.into();
         let path = root.join(paths::PROJECT_FILE);
         let bytes = fs::read(&path).at(&path)?;
-        let file: ProjectFile =
+        let mut file: ProjectFile =
             serde_json::from_slice(&bytes).map_err(|source| Error::Json { path, source })?;
-        if file.format != FORMAT {
+        if LEGACY_FORMATS.contains(&file.format.as_str()) {
+            file.format = FORMAT.into();
+        } else if file.format != FORMAT {
             return Err(Error::UnsupportedFormat { found: file.format, expected: FORMAT });
         }
         Ok(Self { root, file })

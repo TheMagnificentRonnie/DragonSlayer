@@ -509,3 +509,25 @@ fn ffmpeg_args_ask_for_machine_readable_progress_on_stdout() {
     let at = args.iter().position(|a| a == "-progress").expect("-progress");
     assert_eq!(args[at + 1], "pipe:1");
 }
+
+#[test]
+fn projects_from_before_the_rename_open_and_are_relabelled_on_save() {
+    // Projects made when the app was called Stopgap say "stopgap/1"; they couldn't be opened.
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("GH5Test");
+    let mut p = Project::create(&root, "GH5-Test", 12).unwrap();
+    capture::capture(&p, Some("Panasonic DC-GH5"), fake_shot).unwrap();
+    p.file.format = "stopgap/1".into();
+    p.save().unwrap();
+
+    let mut old = Project::open(&root).expect("legacy project opens");
+    assert_eq!(old.active_scene().unwrap().frame_count().unwrap(), 1);
+    old.add_scene("B", None).unwrap();
+    let text = fs::read_to_string(root.join("project.json")).unwrap();
+    assert!(text.contains("dragonslayer/1"), "relabelled on save: {text}");
+    // Something genuinely unknown is still refused.
+    let mut future = Project::open(&root).unwrap();
+    future.file.format = "dragonslayer/9".into();
+    future.save().unwrap();
+    assert!(Project::open(&root).is_err());
+}

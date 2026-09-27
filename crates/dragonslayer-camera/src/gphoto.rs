@@ -285,6 +285,7 @@ fn config_names(kind: SettingKind) -> &'static [&'static str] {
         SettingKind::Iso => &["iso"],
         SettingKind::WhiteBalance => &["whitebalance"],
         SettingKind::ImageFormat => &["imageformat", "imagequality"],
+        SettingKind::CaptureTarget => &["capturetarget"],
     }
 }
 

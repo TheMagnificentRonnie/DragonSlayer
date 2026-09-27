@@ -1,6 +1,7 @@
 mod app;
 mod icon;
 mod images;
+mod recent;
 mod session;
 mod theme;
 
