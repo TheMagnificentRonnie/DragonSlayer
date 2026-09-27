@@ -11,29 +11,53 @@ VERSION=$(grep -m1 '^version' Cargo.toml | sed -E 's/version = "(.*)"/\1/')
 STAGE="target/dist/dragonslayer-$VERSION-windows-x64"
 ZIP="target/dist/dragonslayer-$VERSION-windows-x64.zip"
 
-echo "==> Building release with gphoto2 feature..."
-export PATH="/c/msys64/ucrt64/bin:$PATH"
-export PKG_CONFIG_PATH="/c/msys64/ucrt64/lib/pkgconfig"
+# Inside an MSYS2 UCRT64 shell (CI) MINGW_PREFIX is /ucrt64; from Git Bash, assume the default install.
+UCRT="${MINGW_PREFIX:-/c/msys64/ucrt64}"
+export PATH="$UCRT/bin:$PATH"
+export PKG_CONFIG_PATH="$UCRT/lib/pkgconfig"
 export PKG_CONFIG_ALLOW_CROSS=1
-export LIBCLANG_PATH="/c/msys64/ucrt64/bin"
-cargo build --release --features gphoto2 \
-    -p dragonslayer-cli -p dragonslayer-app \
-    --target x86_64-pc-windows-gnu
+export LIBCLANG_PATH="$UCRT/bin"
+REL="target/x86_64-pc-windows-gnu/release"
+
+if [[ -z "${SKIP_BUILD:-}" ]]; then
+    echo "==> Building release with gphoto2 feature..."
+    cargo build --release --features gphoto2 \
+        -p dragonslayer-cli -p dragonslayer-app \
+        --target x86_64-pc-windows-gnu
+fi
 
 echo "==> Staging to $STAGE..."
 rm -rf "$STAGE" "$ZIP"
-mkdir -p "$STAGE"/{bin,camera-drivers}
+mkdir -p "$STAGE"/{camera-drivers,libgphoto2/camlibs,libgphoto2/iolibs}
 
-# Executables + bundled runtime DLLs already sitting in target/release/
-cp target/x86_64-pc-windows-gnu/release/dragonslayer.exe "$STAGE/"
-cp target/x86_64-pc-windows-gnu/release/dragonslayer-app.exe "$STAGE/"
-cp target/x86_64-pc-windows-gnu/release/*.dll "$STAGE/" 2>/dev/null || true
-cp target/x86_64-pc-windows-gnu/release/zadig.exe "$STAGE/camera-drivers/" 2>/dev/null || true
+cp "$REL/dragonslayer.exe" "$REL/dragonslayer-app.exe" "$STAGE/"
+cp "$REL/zadig.exe" "$STAGE/camera-drivers/" 2>/dev/null || echo "   (no zadig.exe in $REL; bundle ships without it)"
 
-# libgphoto2 camlibs/iolibs (needed at runtime, referenced via CAMLIBS/IOLIBS env vars)
-mkdir -p "$STAGE/libgphoto2/camlibs" "$STAGE/libgphoto2/iolibs"
-cp /c/msys64/ucrt64/lib/libgphoto2/2.5.34/*.dll "$STAGE/libgphoto2/camlibs/"
-cp /c/msys64/ucrt64/lib/libgphoto2_port/0.12.2/*.dll "$STAGE/libgphoto2/iolibs/"
+# libgphoto2 camera drivers (camlibs) and port drivers (iolibs), found via CAMLIBS/IOLIBS at
+# runtime. Globbed so a newer libgphoto2 from pacman doesn't break the script.
+cp "$UCRT"/lib/libgphoto2/*/*.dll "$STAGE/libgphoto2/camlibs/"
+cp "$UCRT"/lib/libgphoto2_port/*/*.dll "$STAGE/libgphoto2/iolibs/"
+
+# Runtime DLLs: walk the import tables of everything we ship and copy each MSYS2 DLL they need,
+# recursively. Windows system DLLs aren't in $UCRT/bin, so they're skipped.
+echo "==> Collecting runtime DLLs..."
+declare -A SEEN
+collect() {
+    local dll
+    for dll in $(objdump -p "$1" | awk '/DLL Name:/ { print $3 }'); do
+        local key="${dll,,}"
+        [[ -n "${SEEN[$key]:-}" ]] && continue
+        SEEN[$key]=1
+        if [[ -f "$UCRT/bin/$dll" ]]; then
+            cp "$UCRT/bin/$dll" "$STAGE/"
+            collect "$UCRT/bin/$dll"
+        fi
+    done
+}
+for f in "$STAGE"/*.exe "$STAGE"/libgphoto2/camlibs/*.dll "$STAGE"/libgphoto2/iolibs/*.dll; do
+    collect "$f"
+done
+echo "   $(ls "$STAGE"/*.dll | wc -l) DLLs bundled"
 
 # Docs
 cp README.md CAMERAS.md MANUAL_TESTING.md dragonslayer-spec.md "$STAGE/"

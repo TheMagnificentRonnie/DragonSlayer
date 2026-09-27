@@ -58,6 +58,7 @@ jobs:
           echo "PKG_CONFIG_PATH=/ucrt64/lib/pkgconfig" >> $GITHUB_ENV
           echo "PKG_CONFIG_ALLOW_CROSS=1" >> $GITHUB_ENV
           echo "LIBCLANG_PATH=/ucrt64/bin" >> $GITHUB_ENV
+          echo "MINGW_PREFIX=/ucrt64" >> $GITHUB_ENV
 
       - name: Build (with gphoto2)
         run: |
