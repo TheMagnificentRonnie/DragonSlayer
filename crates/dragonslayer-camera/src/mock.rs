@@ -10,7 +10,7 @@ use image::{Rgb, RgbImage};
 
 use crate::{
     live_view_channel, Camera, CameraBackend, CameraError, Capabilities, CaptureHandle, CapturedFile, DeviceInfo,
-    LiveFrame, LiveViewSender, LiveViewStream, Result,
+    LiveFrame, LiveViewSender, LiveViewStream, Result, Setting, SettingKind,
 };
 
 pub struct MockBackend {
@@ -38,7 +38,14 @@ impl CameraBackend for MockBackend {
         if device.port != "mock:0" {
             return Err(CameraError::NotFound);
         }
-        Ok(Box::new(MockCamera { info: Self::device(), caps: self.capabilities, shots: 0, pending: None, live: None }))
+        Ok(Box::new(MockCamera {
+            info: Self::device(),
+            caps: self.capabilities,
+            shots: 0,
+            pending: None,
+            live: None,
+            settings: default_settings(),
+        }))
     }
 }
 
@@ -48,6 +55,24 @@ pub struct MockCamera {
     shots: u64,
     pending: Option<u64>,
     live: Option<LiveViewSender>,
+    settings: Vec<Setting>,
+}
+
+/// A plausible manual-mode camera. White balance is read-only to exercise that path in the UI.
+fn default_settings() -> Vec<Setting> {
+    let s = |kind, value: &str, choices: &[&str], readonly| Setting {
+        kind,
+        value: value.into(),
+        choices: choices.iter().map(|c| c.to_string()).collect(),
+        readonly,
+    };
+    vec![
+        s(SettingKind::Aperture, "f/5.6", &["f/2.8", "f/4", "f/5.6", "f/8", "f/11", "f/16"], false),
+        s(SettingKind::Shutter, "1/60", &["1/250", "1/125", "1/60", "1/30", "1/15", "1/8", "1/4", "1/2", "1"], false),
+        s(SettingKind::Iso, "200", &["100", "200", "400", "800", "1600"], false),
+        s(SettingKind::WhiteBalance, "Daylight", &["Auto", "Daylight", "Tungsten", "Fluorescent"], true),
+        s(SettingKind::ImageFormat, "RAW + Large Fine JPEG", &["Large Fine JPEG", "RAW", "RAW + Large Fine JPEG"], false),
+    ]
 }
 
 impl Camera for MockCamera {
@@ -120,6 +145,26 @@ impl Camera for MockCamera {
 
     fn close(mut self: Box<Self>) -> Result<()> {
         self.stop_live_view()
+    }
+
+    fn settings(&mut self) -> Result<Vec<Setting>> {
+        Ok(self.settings.clone())
+    }
+
+    fn set_setting(&mut self, kind: SettingKind, value: &str) -> Result<()> {
+        let s = self
+            .settings
+            .iter_mut()
+            .find(|s| s.kind == kind)
+            .ok_or(CameraError::Unsupported("that setting"))?;
+        if s.readonly {
+            return Err(CameraError::Backend(format!("{} is read-only in the current camera mode", kind.label())));
+        }
+        if !s.choices.iter().any(|c| c == value) {
+            return Err(CameraError::Backend(format!("{value:?} is not a valid {}", kind.label())));
+        }
+        s.value = value.into();
+        Ok(())
     }
 }
 

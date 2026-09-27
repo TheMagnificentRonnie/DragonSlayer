@@ -18,6 +18,7 @@ pub enum Tab {
     Viewer,
     Timeline,
     Camera,
+    Exposure,
     Onion,
     Export,
 }
@@ -26,11 +27,11 @@ impl Tab {
     fn default_layout() -> DockState<Tab> {
         let mut dock = DockState::new(vec![Tab::Viewer]);
         let surface = dock.main_surface_mut();
-        // Right side: camera + onion + export as three tabs of one node.
+        // Right side: camera, exposure, onion and export as tabs of one node.
         let [center, _right] = surface.split_right(
             NodeIndex::root(),
             0.72,
-            vec![Tab::Camera, Tab::Onion, Tab::Export],
+            vec![Tab::Camera, Tab::Exposure, Tab::Onion, Tab::Export],
         );
         // Left side: scenes list.
         let [center_after_left, _left] = surface.split_left(center, 0.22, vec![Tab::Scenes]);
@@ -112,6 +113,10 @@ pub struct DragonSlayerApp {
     interval_secs: f64,
     /// Running interval sequence, if any. `None` when idle.
     interval: Option<Interval>,
+    /// Camera settings as last reported by the camera. Empty when none are available.
+    camera_settings: Vec<dragonslayer_camera::Setting>,
+    /// A change sent to the camera that hasn't been confirmed by a re-read yet.
+    setting_pending: bool,
 
     onion_on: bool,
     onion_count: usize,
@@ -205,6 +210,8 @@ impl DragonSlayerApp {
             interval_count: 10,
             interval_secs: 2.0,
             interval: None,
+            camera_settings: Vec::new(),
+            setting_pending: false,
             onion_on: true,
             onion_count: 1,
             onion_opacity: 0.55,
@@ -393,6 +400,8 @@ impl DragonSlayerApp {
                         if self.interval.is_some() {
                             self.stop_interval("camera lost");
                         }
+                        self.camera_settings.clear();
+                        self.setting_pending = false;
                     }
                     self.status = s;
                 }
@@ -400,6 +409,11 @@ impl DragonSlayerApp {
                     Some(t) if t.size() == img.size => t.set(img, TextureOptions::LINEAR),
                     _ => self.live = Some(ctx.load_texture("live view", img, TextureOptions::LINEAR)),
                 },
+                Event::Settings(settings) => {
+                    self.camera_settings = settings;
+                    self.setting_pending = false;
+                }
+                Event::SettingFailed(msg) => self.error(msg),
                 Event::Captured(result) => {
                     self.capturing = false;
                     match result {
@@ -897,6 +911,63 @@ impl DragonSlayerApp {
                 }
             }
         }
+    }
+
+    fn tab_exposure(&mut self, ui: &mut egui::Ui) {
+        ui.add_space(4.0);
+        let muted = crate::theme::palette().text_muted;
+        if !self.camera_ready() {
+            ui.label(RichText::new("Connect a camera to change its settings.").color(muted));
+            return;
+        }
+        if self.camera_settings.is_empty() {
+            ui.label(RichText::new("This camera doesn't report any adjustable settings over USB.").color(muted));
+            return;
+        }
+
+        let mut change: Option<(dragonslayer_camera::SettingKind, String)> = None;
+        // Changing settings mid-capture would race the shot.
+        let enabled = !self.capturing && !self.setting_pending;
+        egui::Grid::new("exposure").num_columns(2).spacing([10.0, 8.0]).show(ui, |ui| {
+            for s in &self.camera_settings {
+                ui.label(s.kind.label());
+                let mut selected = s.value.clone();
+                ui.add_enabled_ui(enabled && !s.readonly, |ui| {
+                    egui::ComboBox::from_id_salt(s.kind)
+                        .selected_text(&s.value)
+                        .width(ui.available_width().max(140.0))
+                        .show_ui(ui, |ui| {
+                            for c in &s.choices {
+                                ui.selectable_value(&mut selected, c.clone(), c);
+                            }
+                        })
+                        .response
+                        .on_disabled_hover_text(if s.readonly {
+                            "Read-only in the camera's current mode. Set the mode dial to M."
+                        } else {
+                            "Waiting for the camera…"
+                        });
+                });
+                if selected != s.value {
+                    change = Some((s.kind, selected));
+                }
+                ui.end_row();
+            }
+        });
+        if let Some((kind, value)) = change
+            && self.session.cmd.send(Cmd::SetSetting(kind, value)).is_ok()
+        {
+            self.setting_pending = true;
+        }
+
+        ui.add_space(8.0);
+        ui.label(
+            RichText::new(
+                "Shoot in manual (M) with a fixed white balance: anything automatic changes between frames and makes the film flicker.",
+            )
+            .small()
+            .color(muted),
+        );
     }
 
     fn tab_onion(&mut self, ui: &mut egui::Ui) {
@@ -2019,6 +2090,7 @@ impl egui_dock::TabViewer for DragonSlayerApp {
             Tab::Viewer => format!("{}  Viewer", ph::IMAGE_SQUARE),
             Tab::Timeline => format!("{}  Timeline", ph::LIST_BULLETS),
             Tab::Camera => format!("{}  Camera", ph::CAMERA),
+            Tab::Exposure => format!("{}  Exposure", ph::APERTURE),
             Tab::Onion => format!("{}  Onion Skin", ph::STACK),
             Tab::Export => format!("{}  Export", ph::EXPORT),
         };
@@ -2031,6 +2103,7 @@ impl egui_dock::TabViewer for DragonSlayerApp {
             Tab::Viewer => self.viewer(ui),
             Tab::Timeline => self.tab_timeline(ui),
             Tab::Camera => self.tab_camera(ui),
+            Tab::Exposure => self.tab_exposure(ui),
             Tab::Onion => self.tab_onion(ui),
             Tab::Export => self.tab_export(ui),
         }

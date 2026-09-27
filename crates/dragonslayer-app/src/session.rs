@@ -6,7 +6,9 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use eframe::egui::{self, ColorImage};
-use dragonslayer_camera::{Camera, CameraBackend, CameraError, Capabilities, DeviceInfo, LiveViewStream};
+use dragonslayer_camera::{
+    Camera, CameraBackend, CameraError, Capabilities, DeviceInfo, LiveViewStream, Setting, SettingKind,
+};
 use dragonslayer_core::capture::{self, Captured};
 use dragonslayer_core::Project;
 
@@ -18,6 +20,8 @@ pub enum Cmd {
     /// Panasonic PTP wedges under a sustained stream of preview requests, so we pause
     /// live view when the UI enters Preview mode where it's not needed.
     SetLiveActive(bool),
+    /// Change one camera setting; the worker re-reads all settings afterwards.
+    SetSetting(SettingKind, String),
 }
 
 #[derive(Clone, Debug)]
@@ -34,6 +38,9 @@ pub enum Event {
     Status(Status),
     Live(ColorImage),
     Captured(Result<Captured, String>),
+    /// Current camera settings. Sent on connect and after every change attempt.
+    Settings(Vec<Setting>),
+    SettingFailed(String),
 }
 
 pub struct Session {
@@ -119,6 +126,7 @@ impl Worker {
             match cmd {
                 Some(Cmd::Capture(project)) => self.capture(&project),
                 Some(Cmd::SetLiveActive(active)) => self.set_live_active(active),
+                Some(Cmd::SetSetting(kind, value)) => self.set_setting(kind, &value),
                 None => {}
             }
 
@@ -164,6 +172,7 @@ impl Worker {
                 }
                 self.status(Status::Connected { name: device.display_name(), caps });
                 self.camera = Some((device, cam));
+                self.send_settings();
                 self.start_live();
             }
             Err(CameraError::WrongDriver) => {
@@ -215,6 +224,26 @@ impl Worker {
             let _ = cam.close();
         }
         self.status(Status::Problem { name, message: message.into() });
+    }
+
+    /// Read once on connect and after changes only: polling would add PTP traffic,
+    /// which is what wedges Panasonic bodies.
+    fn send_settings(&mut self) {
+        let Some((_, cam)) = &mut self.camera else { return };
+        match cam.settings() {
+            Ok(settings) => self.send(Event::Settings(settings)),
+            Err(e) => self.send(Event::SettingFailed(explain(&e))),
+        }
+    }
+
+    fn set_setting(&mut self, kind: SettingKind, value: &str) {
+        let Some((_, cam)) = &mut self.camera else { return };
+        if let Err(e) = cam.set_setting(kind, value) {
+            let msg = format!("Couldn't set {}: {}", kind.label(), explain(&e));
+            self.send(Event::SettingFailed(msg));
+        }
+        // Re-read either way: the camera may have snapped to a nearby value, or refused.
+        self.send_settings();
     }
 
     fn capture(&mut self, project: &Project) {

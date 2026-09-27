@@ -67,7 +67,7 @@ The essentials that every serious stop-motion tool has. Getting these done takes
 
 ### Camera settings (M)
 
-- 🎯 **Aperture, shutter, ISO, WB from the app** — libgphoto2 exposes these as config widgets. Currently the spec explicitly excludes them; that made sense for scope but pros need them.
+- 🚧 **Aperture, shutter, ISO, WB from the app** — Exposure panel and `dragonslayer settings` CLI, plus image format (to switch on RAW+JPEG). Read on connect and after each change, never polled. Needs verifying on real bodies (GH5, 100D): config names differ per driver.
 - 🎯 **Focus assist** — magnify a region of live view; edge peaking overlay.
 - 🎯 **Focus stacking** — capture N frames at stepped focus positions, compile with Helicon Focus / focus-stack.
 - 🎯 **Exposure bracketing** — three-shot bracket per frame for later HDR merge.

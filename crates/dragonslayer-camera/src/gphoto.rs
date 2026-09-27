@@ -12,12 +12,15 @@ use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
+use std::collections::HashMap;
+
 use gphoto2::camera::CameraEvent;
+use gphoto2::widget::RadioWidget;
 use gphoto2::Context;
 
 use crate::{
     live_view_channel, Camera, CameraBackend, CameraError, Capabilities, CaptureHandle, CapturedFile, DeviceInfo,
-    LiveFrame, LiveViewSender, LiveViewStream, Result,
+    LiveFrame, LiveViewSender, LiveViewStream, Result, Setting, SettingKind,
 };
 
 /// After the first file, how long to wait between events before giving up on more.
@@ -76,6 +79,8 @@ enum Cmd {
     StopLive,
     Capture(Sender<Result<CaptureHandle>>),
     Download(CaptureHandle, PathBuf, Sender<Result<Vec<CapturedFile>>>),
+    Settings(Sender<Result<Vec<Setting>>>),
+    SetSetting(SettingKind, String, Sender<Result<()>>),
     Close,
 }
 
@@ -126,6 +131,15 @@ impl Camera for GphotoCamera {
         // Drop does the join-with-timeout so the PTP session is released.
         Ok(())
     }
+
+    fn settings(&mut self) -> Result<Vec<Setting>> {
+        self.call(Cmd::Settings)
+    }
+
+    fn set_setting(&mut self, kind: SettingKind, value: &str) -> Result<()> {
+        let value = value.to_owned();
+        self.call(|tx| Cmd::SetSetting(kind, value, tx))
+    }
 }
 
 fn worker(wanted: DeviceInfo, cmds: Receiver<Cmd>, ready: Sender<Result<Capabilities>>) {
@@ -160,6 +174,7 @@ fn worker(wanted: DeviceInfo, cmds: Receiver<Cmd>, ready: Sender<Result<Capabili
 
     let mut live: Option<LiveViewSender> = None;
     let mut seq = 0u64;
+    let mut setting_names: HashMap<SettingKind, String> = HashMap::new();
     'outer: loop {
         // Block while idle; poll while live view is running.
         let cmd = if live.is_some() {
@@ -184,6 +199,12 @@ fn worker(wanted: DeviceInfo, cmds: Receiver<Cmd>, ready: Sender<Result<Capabili
             }
             Some(Cmd::Download(handle, dest, reply)) => {
                 let _ = reply.send(download(&camera, &handle, &dest));
+            }
+            Some(Cmd::Settings(reply)) => {
+                let _ = reply.send(Ok(read_settings(&camera, &mut setting_names)));
+            }
+            Some(Cmd::SetSetting(kind, value, reply)) => {
+                let _ = reply.send(set_setting(&camera, &mut setting_names, kind, &value));
             }
             Some(Cmd::Close) => break 'outer,
             None => {}
@@ -251,6 +272,65 @@ fn download(camera: &gphoto2::Camera, handle: &CaptureHandle, dest: &Path) -> Re
         out.push(CapturedFile::new(path));
     }
     Ok(out)
+}
+
+/// libgphoto2 config names differ by driver (Canon EOS vs generic PTP / Panasonic).
+fn config_names(kind: SettingKind) -> &'static [&'static str] {
+    match kind {
+        SettingKind::Aperture => &["aperture", "f-number"],
+        SettingKind::Shutter => &["shutterspeed", "shutterspeed2"],
+        SettingKind::Iso => &["iso"],
+        SettingKind::WhiteBalance => &["whitebalance"],
+        SettingKind::ImageFormat => &["imageformat", "imagequality"],
+    }
+}
+
+/// Finds the widget for `kind`, remembering which config name worked. Absent names
+/// aren't cached, so a transient failure doesn't hide a setting for the whole session.
+fn setting_widget(
+    camera: &gphoto2::Camera,
+    names: &mut HashMap<SettingKind, String>,
+    kind: SettingKind,
+) -> Option<RadioWidget> {
+    if let Some(name) = names.get(&kind)
+        && let Ok(w) = camera.config_key::<RadioWidget>(name).wait()
+    {
+        return Some(w);
+    }
+    for name in config_names(kind) {
+        if let Ok(w) = camera.config_key::<RadioWidget>(name).wait() {
+            names.insert(kind, (*name).to_owned());
+            return Some(w);
+        }
+    }
+    None
+}
+
+fn read_settings(camera: &gphoto2::Camera, names: &mut HashMap<SettingKind, String>) -> Vec<Setting> {
+    SettingKind::ALL
+        .into_iter()
+        .filter_map(|kind| {
+            let w = setting_widget(camera, names, kind)?;
+            let value = w.choice();
+            let mut choices: Vec<String> = w.choices_iter().collect();
+            // Some drivers report a current value that isn't in the list; keep it selectable.
+            if !value.is_empty() && !choices.contains(&value) {
+                choices.insert(0, value.clone());
+            }
+            Some(Setting { kind, value, choices, readonly: w.readonly() })
+        })
+        .collect()
+}
+
+fn set_setting(
+    camera: &gphoto2::Camera,
+    names: &mut HashMap<SettingKind, String>,
+    kind: SettingKind,
+    value: &str,
+) -> Result<()> {
+    let w = setting_widget(camera, names, kind).ok_or(CameraError::Unsupported("that setting"))?;
+    w.set_choice(value).map_err(backend)?;
+    camera.set_config(&w).wait().map_err(backend)
 }
 
 fn join(folder: &str, name: &str) -> String {

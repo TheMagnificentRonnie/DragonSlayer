@@ -185,3 +185,50 @@ fn display_name_does_not_duplicate_the_make_when_the_model_starts_with_it() {
     let d = DeviceInfo { make: String::new(), model: "Some Model".into(), serial: None, port: "usb:3".into() };
     assert_eq!(d.display_name(), "Some Model");
 }
+
+// ---------------------------------------------------------------- settings
+
+fn mock_camera() -> Box<dyn dragonslayer_camera::Camera> {
+    let backend = MockBackend::default();
+    let device = backend.enumerate().unwrap().pop().unwrap();
+    backend.open(&device).unwrap()
+}
+
+#[test]
+fn settings_are_reported_in_canonical_order_with_current_value_in_choices() {
+    use dragonslayer_camera::SettingKind;
+    let mut cam = mock_camera();
+    let settings = cam.settings().unwrap();
+    let kinds: Vec<_> = settings.iter().map(|s| s.kind).collect();
+    assert_eq!(kinds, SettingKind::ALL);
+    for s in &settings {
+        assert!(s.choices.contains(&s.value), "{:?} value {:?} not in choices", s.kind, s.value);
+    }
+}
+
+#[test]
+fn set_setting_changes_the_value_reported_afterwards() {
+    use dragonslayer_camera::SettingKind;
+    let mut cam = mock_camera();
+    cam.set_setting(SettingKind::Iso, "800").unwrap();
+    let iso = cam.settings().unwrap().into_iter().find(|s| s.kind == SettingKind::Iso).unwrap();
+    assert_eq!(iso.value, "800");
+}
+
+#[test]
+fn set_setting_rejects_values_not_in_choices_and_leaves_value_alone() {
+    use dragonslayer_camera::SettingKind;
+    let mut cam = mock_camera();
+    let before = cam.settings().unwrap();
+    assert!(cam.set_setting(SettingKind::Aperture, "f/1.0").is_err());
+    assert_eq!(cam.settings().unwrap(), before);
+}
+
+#[test]
+fn readonly_setting_cannot_be_changed() {
+    use dragonslayer_camera::SettingKind;
+    let mut cam = mock_camera();
+    let wb = cam.settings().unwrap().into_iter().find(|s| s.kind == SettingKind::WhiteBalance).unwrap();
+    assert!(wb.readonly);
+    assert!(cam.set_setting(SettingKind::WhiteBalance, "Tungsten").is_err());
+}

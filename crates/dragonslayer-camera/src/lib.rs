@@ -109,6 +109,41 @@ impl CapturedFile {
     }
 }
 
+/// Camera settings the app exposes. Only settings a camera actually reports are shown.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SettingKind {
+    Aperture,
+    Shutter,
+    Iso,
+    WhiteBalance,
+    ImageFormat,
+}
+
+impl SettingKind {
+    pub const ALL: [SettingKind; 5] =
+        [SettingKind::Aperture, SettingKind::Shutter, SettingKind::Iso, SettingKind::WhiteBalance, SettingKind::ImageFormat];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            SettingKind::Aperture => "Aperture",
+            SettingKind::Shutter => "Shutter",
+            SettingKind::Iso => "ISO",
+            SettingKind::WhiteBalance => "White balance",
+            SettingKind::ImageFormat => "Image format",
+        }
+    }
+}
+
+/// Current value and the values the camera will accept right now. Choices depend on
+/// the camera's mode dial: in P/A/S some settings are read-only or restricted.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Setting {
+    pub kind: SettingKind,
+    pub value: String,
+    pub choices: Vec<String>,
+    pub readonly: bool,
+}
+
 pub trait Camera: Send {
     fn info(&self) -> &DeviceInfo;
     fn capabilities(&self) -> Capabilities;
@@ -117,6 +152,16 @@ pub trait Camera: Send {
     fn capture(&mut self) -> Result<CaptureHandle>;
     fn download(&mut self, handle: CaptureHandle, dest: &Path) -> Result<Vec<CapturedFile>>;
     fn close(self: Box<Self>) -> Result<()>;
+
+    /// Settings this camera reports, in [`SettingKind::ALL`] order. Empty if unsupported.
+    fn settings(&mut self) -> Result<Vec<Setting>> {
+        Ok(Vec::new())
+    }
+
+    /// `value` must be one of the setting's `choices`.
+    fn set_setting(&mut self, _kind: SettingKind, _value: &str) -> Result<()> {
+        Err(CameraError::Unsupported("camera settings"))
+    }
 }
 
 pub trait CameraBackend: Send + Sync {

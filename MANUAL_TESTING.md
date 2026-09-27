@@ -218,6 +218,14 @@ Windows driver.
 - [ ] **6.10 Sleep prevention.** Set Windows sleep to 2 min. Launch the app with a
       project open, don't touch keyboard or mouse for 3 min. Screen and machine stay
       awake. Quit / close the project: normal sleep behaviour returns.
+- [ ] **6.10a Camera settings.** Mode dial on **M**. `dragonslayer settings` lists
+      aperture, shutter, ISO, white balance and image format with the values shown on
+      the camera. `dragonslayer settings iso 400` changes the camera's ISO (check the
+      camera's own screen). In the app, the **Exposure** tab shows the same values; changing
+      shutter visibly brightens/darkens live view, and the next capture uses it. Switch
+      the dial to **P**/**A**: some settings become read-only (greyed out) rather than erroring.
+      Change settings ~20 times with live view running: no wedge. Record any setting that
+      is missing for this model and the name `gphoto2 --list-config` uses for it.
 - [ ] **6.11 Transaction record.** With the debug build option on
       (`--features gphoto2,ptp-record`, once implemented), run 6.3 with the record file
       set. A `<camera>.ptprec` file is written; replay it in CI without hardware and

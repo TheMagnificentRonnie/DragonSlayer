@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use anyhow::{bail, Context as _, Result};
 use clap::{Parser, Subcommand, ValueEnum};
-use dragonslayer_camera::{mock::MockBackend, CameraBackend, FileKind};
+use dragonslayer_camera::{mock::MockBackend, CameraBackend, FileKind, SettingKind};
 use dragonslayer_core::compile::{self, Format, Framing, Resolution, Settings};
 use dragonslayer_core::{capture, Project};
 
@@ -36,6 +36,16 @@ enum Cmd {
     },
     /// List detected cameras and what they support.
     Cameras,
+    /// Show the camera's exposure settings, or change one.
+    Settings {
+        /// Setting to change; omit to list all.
+        setting: Option<SettingArg>,
+        /// New value, exactly as listed.
+        value: Option<String>,
+        /// Camera port from `dragonslayer cameras` (defaults to the first camera found).
+        #[arg(long)]
+        camera: Option<String>,
+    },
     /// Capture frames into a scene (which becomes the active scene).
     Capture {
         project: PathBuf,
@@ -91,6 +101,27 @@ enum SceneCmd {
 }
 
 #[derive(Clone, Copy, ValueEnum)]
+enum SettingArg {
+    Aperture,
+    Shutter,
+    Iso,
+    Wb,
+    Format,
+}
+
+impl From<SettingArg> for SettingKind {
+    fn from(a: SettingArg) -> Self {
+        match a {
+            SettingArg::Aperture => SettingKind::Aperture,
+            SettingArg::Shutter => SettingKind::Shutter,
+            SettingArg::Iso => SettingKind::Iso,
+            SettingArg::Wb => SettingKind::WhiteBalance,
+            SettingArg::Format => SettingKind::ImageFormat,
+        }
+    }
+}
+
+#[derive(Clone, Copy, ValueEnum)]
 enum FormatArg {
     H264,
     Prores,
@@ -123,6 +154,9 @@ fn run(cli: Cli) -> Result<()> {
         }
         Cmd::Scene { action } => scene(action)?,
         Cmd::Cameras => cameras(&*backend(mock)?)?,
+        Cmd::Settings { setting, value, camera } => {
+            settings_cmd(&*backend(mock)?, setting.map(Into::into), value.as_deref(), camera.as_deref())?
+        }
         Cmd::Capture { project, scene, count, interval, camera } => {
             capture_cmd(&*backend(mock)?, &project, &scene, count, interval, camera.as_deref())?
         }
@@ -233,6 +267,55 @@ fn cameras(backend: &dyn CameraBackend) -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn settings_cmd(
+    backend: &dyn CameraBackend,
+    setting: Option<SettingKind>,
+    value: Option<&str>,
+    port: Option<&str>,
+) -> Result<()> {
+    let devices = backend.enumerate()?;
+    let device = match port {
+        Some(port) => devices.into_iter().find(|d| d.port == port),
+        None => devices.into_iter().next(),
+    };
+    let Some(device) = device else {
+        print_connect_help();
+        bail!("no camera found");
+    };
+    let mut cam = backend.open(&device)?;
+    let result = (|| {
+        match (setting, value) {
+            (Some(kind), Some(value)) => {
+                cam.set_setting(kind, value)?;
+                let now = cam.settings()?.into_iter().find(|s| s.kind == kind);
+                println!("{}: {}", kind.label(), now.map_or("(unknown)".into(), |s| s.value));
+            }
+            (Some(kind), None) => {
+                let s = cam
+                    .settings()?
+                    .into_iter()
+                    .find(|s| s.kind == kind)
+                    .with_context(|| format!("{} doesn't report {}", device.display_name(), kind.label()))?;
+                println!("{}: {}{}", kind.label(), s.value, if s.readonly { "  (read-only)" } else { "" });
+                println!("  choices: {}", s.choices.join(", "));
+            }
+            (None, _) => {
+                let all = cam.settings()?;
+                if all.is_empty() {
+                    println!("{} doesn't report any adjustable settings.", device.display_name());
+                }
+                for s in all {
+                    let ro = if s.readonly { "  (read-only in this mode)" } else { "" };
+                    println!("{:<14} {}{ro}", s.kind.label(), s.value);
+                }
+            }
+        }
+        Ok(())
+    })();
+    cam.close().ok();
+    result
 }
 
 fn capture_cmd(
