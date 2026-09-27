@@ -16,8 +16,9 @@ use egui_kittest::Harness;
 
 use super::*;
 
-/// Generous: CI machines are slow and every test runs its own camera threads in parallel.
-const WAIT: Duration = Duration::from_secs(30);
+/// CI machines are slow and every test runs its own camera threads in parallel. The Mac
+/// runner is roughly half the speed of a laptop, so this needs plenty of headroom.
+const WAIT: Duration = Duration::from_secs(90);
 
 struct Rig<'a> {
     h: Harness<'a, DragonSlayerApp>,
