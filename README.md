@@ -211,7 +211,7 @@ A release only happens when you ask for one:
 
 1. Bump `version` in the root `Cargo.toml` (e.g. `0.3.0-beta`) and push.
 2. **Actions** → **Build Windows + macOS** → **Run workflow** → type the version with a `v` (e.g. `v0.3.0-beta`).
-3. Both platforms build, then the tag and the GitHub release are created with both zips attached. Versions with a `-` suffix are marked pre-release. If the version doesn't match `Cargo.toml`, nothing is published.
+3. Both platforms build, then the tag and the GitHub release are created with both zips attached and marked as the latest release (so the download links pick it up). If either build fails, or the version doesn't match `Cargo.toml`, nothing is published.
 
 ## Command line
 

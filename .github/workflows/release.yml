@@ -146,7 +146,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="${{ github.event.inputs.release }}"
-          PRE=""
-          case "$TAG" in *-*) PRE="--prerelease" ;; esac
           ls -la dist
-          gh release create "$TAG" dist/*.zip --target "$GITHUB_SHA" --title "DragonSlayer $TAG" --generate-notes $PRE
+          # Always a normal release marked latest, even for -beta versions: the README and
+          # landing page link to /releases/latest, which skips pre-releases.
+          gh release create "$TAG" dist/*.zip --target "$GITHUB_SHA" --title "DragonSlayer $TAG" --generate-notes --latest
