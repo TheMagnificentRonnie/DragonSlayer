@@ -47,6 +47,8 @@ use dragonslayer_camera::diag::UsbCamera;
 
 type UsbScan = Result<Vec<UsbCamera>, String>;
 
+mod import_ui;
+
 use crate::images::Images;
 use crate::session::{Cmd, Event, Session, Status};
 
@@ -158,6 +160,7 @@ pub struct DragonSlayerApp {
     usb_scan_rx: Option<Receiver<Option<UsbScan>>>,
     usb_scan_at: Option<Instant>,
     diagnose_open: bool,
+    import: import_ui::ImportDialog,
     /// When the last live view frame arrived, so the diagnosis can tell if live view is flowing.
     last_live_at: Option<Instant>,
     message: Option<(String, bool, Instant)>,
@@ -265,6 +268,7 @@ impl DragonSlayerApp {
             usb_scan_rx: None,
             usb_scan_at: None,
             diagnose_open: false,
+            import: import_ui::ImportDialog::default(),
             last_live_at: None,
             renaming: None,
             drag_from: None,
@@ -384,7 +388,8 @@ impl DragonSlayerApp {
             self.info("Preview mode: switch to Capture (Tab) to take frames");
             return;
         }
-        if self.capturing || !self.camera_ready() {
+        // An import appends to scenes too; two writers could hand out the same frame number.
+        if self.capturing || !self.camera_ready() || self.import.is_running() {
             return;
         }
         if let Some(p) = &self.project
@@ -541,7 +546,7 @@ impl DragonSlayerApp {
     }
 
     fn shortcuts_active(&self) -> bool {
-        self.renaming.is_none() && !self.compile.open && !self.help_open && !self.diagnose_open
+        self.renaming.is_none() && !self.compile.open && !self.help_open && !self.diagnose_open && !self.import.open
     }
 
     /// Takes the shortcut keys out of the input before egui sees them, so a
@@ -910,6 +915,32 @@ impl DragonSlayerApp {
                 {
                     self.compile.open = true;
                     self.compile.result = None;
+                    ui.close();
+                }
+            });
+            ui.menu_button(format!("{}  Tools", ph::WRENCH), |ui| {
+                if ui
+                    .add_enabled(self.project.is_some(), egui::Button::new(format!("{}  Import images…", ph::DOWNLOAD_SIMPLE)))
+                    .on_hover_text("Pull photos from a camera card or folder into a scene, e.g. to rescue a lost project")
+                    .on_disabled_hover_text("Open or create a project first")
+                    .clicked()
+                {
+                    ui.close();
+                    self.start_import(ui.ctx());
+                }
+                ui.separator();
+                if ui.button(format!("{}  Diagnose camera…", ph::STETHOSCOPE)).clicked() {
+                    self.diagnose_open = true;
+                    self.start_usb_scan(ui.ctx());
+                    ui.close();
+                }
+                if cfg!(windows)
+                    && ui
+                        .button(format!("{}  Set up USB driver (Zadig)…", ph::USB))
+                        .on_hover_text("One-time driver swap for the USB port the camera is plugged into")
+                        .clicked()
+                {
+                    launch_driver_setup();
                     ui.close();
                 }
             });
@@ -2330,6 +2361,17 @@ fn help_content(ui: &mut egui::Ui, os: HelpOs) {
         camera just stretches the schedule. Stop ends it at any time; it also stops by \
         itself if the camera disconnects or you switch to Preview.");
 
+    h(ui, "Import images (rescuing a film from the card)");
+    p(ui, "Tools → Import images… pulls photos from a camera \
+        card or any folder into a scene. Use it to rebuild a film when a project was lost or \
+        damaged but the photos are still on the card, or to add shots taken without \
+        DragonSlayer. Pick the card's DCIM folder; each shot's JPEG and RAW become one frame, \
+        in the order they were taken. The card is only read, never changed.");
+    p(ui, "On a damaged card, files that can't be read are skipped and listed, and JPEGs that \
+        look cut short are flagged so you can check them. Running the import again skips \
+        frames it already brought in, so you can retry after copying stubborn files off the \
+        card another way.");
+
     h(ui, "Compile");
     p(ui, "Compile… asks whether to render this scene or the whole project, what format \
         (H.264 MP4 or ProRes 422 MOV), what resolution (source, 4K, 1080p) and how to frame \
@@ -2835,6 +2877,7 @@ impl eframe::App for DragonSlayerApp {
         self.compile_window(&ctx);
         self.help_window(&ctx);
         self.diagnose_window(&ctx);
+        self.import_window(&ctx);
 
         // Advance playback if we're currently playing.
         self.tick_playback();

@@ -5,6 +5,7 @@ mod atomic;
 pub mod capture;
 pub mod compile;
 mod error;
+pub mod import;
 pub mod journal;
 pub mod paths;
 pub mod project;

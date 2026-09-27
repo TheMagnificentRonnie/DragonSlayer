@@ -186,11 +186,18 @@ impl Project {
             if pending.is_empty() {
                 continue;
             }
+            let journal = scene.journal()?;
             for frame in pending {
                 let files = list_files(&capture::pending_dir(&scene, &frame))?;
                 match files {
                     files if !files.is_empty() => {
-                        capture::commit(&scene, &frame, &files, None)?;
+                        // Keep an interrupted import's source so a re-run still skips it.
+                        let source = journal
+                            .iter()
+                            .rev()
+                            .find(|e| e.op == JournalOp::Pending && e.frame == frame)
+                            .and_then(|e| e.source.clone());
+                        capture::commit(&scene, &frame, &files, None, source)?;
                         report.recovered.push((scene.id().into(), frame));
                     }
                     _ => {

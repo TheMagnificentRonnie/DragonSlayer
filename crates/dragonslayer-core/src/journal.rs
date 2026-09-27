@@ -28,12 +28,20 @@ pub struct JournalEntry {
     pub frame: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub camera: Option<String>,
+    /// For imported frames: where the photo came from, e.g. `100CANON/IMG_0421`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
 }
 
 impl JournalEntry {
     pub fn now(op: JournalOp, frame: impl Into<String>, camera: Option<String>) -> Self {
         let t = OffsetDateTime::now_utc().replace_nanosecond(0).expect("0 is valid");
-        Self { t, op, frame: frame.into(), camera }
+        Self { t, op, frame: frame.into(), camera, source: None }
+    }
+
+    pub fn with_source(mut self, source: Option<String>) -> Self {
+        self.source = source;
+        self
     }
 }
 

@@ -91,6 +91,7 @@ DragonSlayer is deliberately kept small: it does one job (capture + compile) and
 - **Onion skin** — full-frame ghost or edge-detected outlines of the previous frame, so you can see exactly how far you've moved between shots
 - **Scenes** with independent frame rates, drag-to-reorder, rename, per-scene trash
 - **Never lose a frame** — every capture is a filesystem transaction, replayed on the next launch if the app crashes mid-shot
+- **Import images / rescue from the card** (Tools → Import images…) — rebuild a scene from the camera card or any folder if a project was lost or damaged. JPEG + RAW pairs become one frame, in the order they were taken; unreadable files on a damaged card are skipped and listed, cut-short JPEGs are flagged, and re-running skips what's already in. The card is only read.
 - **RAW + JPEG** kept side by side when the camera supports it
 - **Compile** to H.264 MP4 or ProRes 422 MOV, source resolution / 4K / 1080p, crop or fit, with a progress bar and time remaining
 - **Prevents system sleep** during a shooting session
@@ -227,6 +228,9 @@ dragonslayer capture MyFilm sc010 --count 60 --interval 5   # time-lapse: 60 fra
 dragonslayer settings                          # aperture, shutter, ISO, WB, format
 dragonslayer settings iso 400                  # change one (value exactly as listed)
 dragonslayer delete-last MyFilm sc010          # undo last (to trash)
+dragonslayer import MyFilm E:/DCIM --dry-run   # what's on the card
+dragonslayer import MyFilm E:/DCIM             # into a new scene "Imported"
+dragonslayer import MyFilm E:/DCIM --scene sc010   # after sc010's frames
 dragonslayer compile MyFilm --resolution 1080p # render project
 dragonslayer compile MyFilm sc010 --format prores --resolution 4k --crop
 ```

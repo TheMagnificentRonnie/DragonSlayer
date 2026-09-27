@@ -27,13 +27,21 @@ pub fn capture<F>(project: &Project, camera: Option<&str>, shoot: F) -> Result<C
 where
     F: FnOnce(&Path) -> std::result::Result<Vec<PathBuf>, String>,
 {
-    let scene = project.active_scene()?;
-    preflight(&scene)?;
+    capture_into(&project.active_scene()?, camera, None, shoot)
+}
+
+/// [`capture`] into a given scene. `source` records where the files came from (imports).
+pub fn capture_into<F>(scene: &Scene, camera: Option<&str>, source: Option<&str>, shoot: F) -> Result<Captured>
+where
+    F: FnOnce(&Path) -> std::result::Result<Vec<PathBuf>, String>,
+{
+    preflight(scene)?;
 
     let frame = scene.next_frame_id()?;
-    scene.append(&JournalEntry::now(JournalOp::Pending, &frame, camera.map(Into::into)))?;
+    let source = source.map(str::to_owned);
+    scene.append(&JournalEntry::now(JournalOp::Pending, &frame, camera.map(Into::into)).with_source(source.clone()))?;
 
-    let dir = pending_dir(&scene, &frame);
+    let dir = pending_dir(scene, &frame);
     fs::create_dir_all(&dir).at(&dir)?;
 
     let files = match shoot(&dir) {
@@ -52,7 +60,7 @@ where
         }
     };
 
-    let files = commit(&scene, &frame, &files, camera)?;
+    let files = commit(scene, &frame, &files, camera, source)?;
     Ok(Captured { scene: scene.id().into(), frame, files })
 }
 
@@ -69,7 +77,13 @@ fn preflight(scene: &Scene) -> Result<()> {
 }
 
 /// Flush each file, move it into `frames/` as `<frame>.<ext>`, then journal the capture.
-pub(crate) fn commit(scene: &Scene, frame: &str, files: &[PathBuf], camera: Option<&str>) -> Result<Vec<PathBuf>> {
+pub(crate) fn commit(
+    scene: &Scene,
+    frame: &str,
+    files: &[PathBuf],
+    camera: Option<&str>,
+    source: Option<String>,
+) -> Result<Vec<PathBuf>> {
     let frames = paths::frames_dir(&scene.dir);
     fs::create_dir_all(&frames).at(&frames)?;
 
@@ -89,7 +103,7 @@ pub(crate) fn commit(scene: &Scene, frame: &str, files: &[PathBuf], camera: Opti
     atomic::sync_dir(&frames);
     let _ = fs::remove_dir(pending_dir(scene, frame));
 
-    scene.append(&JournalEntry::now(JournalOp::Capture, frame, camera.map(Into::into)))?;
+    scene.append(&JournalEntry::now(JournalOp::Capture, frame, camera.map(Into::into)).with_source(source))?;
     Ok(out)
 }
 

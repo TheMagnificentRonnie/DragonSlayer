@@ -175,6 +175,11 @@ Launch: `dragonslayer-app --mock ~/DragonSlayerTest/Film1`.
       `Recovered N…` message appears (if timing caught one mid-flight) or nothing.
       No orphan folders under `scenes/*/incoming/`; no `pending` entries left in any
       `journal.ndjson`.
+- [ ] **5.1a Rescue from the card.** Shoot a few frames with the real camera, then delete
+      the project folder. New project → **Tools → Import images…** → the card's `DCIM`
+      folder. Every shot appears once, JPEG + RAW paired, in shooting order; the card's files
+      are unchanged. Run it again: "already in this scene" matches and nothing is added.
+      Stop part-way through a large import: the frames so far are kept, and a re-run carries on.
 - [ ] **5.2  Torn journal line.** Quit. In `scenes/sc010/journal.ndjson`, append an
       incomplete line (no `}`, no trailing newline) with a text editor. Restart the
       app on the same project. Scene opens fine, frame count unchanged, the next

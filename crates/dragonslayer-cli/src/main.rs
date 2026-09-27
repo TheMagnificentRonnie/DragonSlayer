@@ -5,7 +5,7 @@ use anyhow::{bail, Context as _, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 use dragonslayer_camera::{mock::MockBackend, CameraBackend, FileKind, SettingKind};
 use dragonslayer_core::compile::{self, Format, Framing, Resolution, Settings};
-use dragonslayer_core::{capture, Project};
+use dragonslayer_core::{capture, import, Project};
 
 #[derive(Parser)]
 #[command(name = "dragonslayer", version, about = "Free stop-motion capture for real cameras")]
@@ -64,6 +64,25 @@ enum Cmd {
     },
     /// Move the last frame of a scene to its trash.
     DeleteLast { project: PathBuf, scene: String },
+    /// Import photos (e.g. from a camera card) into a scene. The source is only read.
+    Import {
+        project: PathBuf,
+        /// Files or folders (searched recursively), e.g. the card's DCIM folder.
+        #[arg(required = true)]
+        sources: Vec<PathBuf>,
+        /// Scene to add to (after its existing frames). Default: a new scene.
+        #[arg(long, conflicts_with = "new_scene")]
+        scene: Option<String>,
+        /// Name for the new scene.
+        #[arg(long, default_value = "Imported")]
+        new_scene: String,
+        /// Order by when each photo was taken, or by file name.
+        #[arg(long, value_enum, default_value_t = OrderArg::Taken)]
+        order: OrderArg,
+        /// Show what would be imported without copying anything.
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// Compile one scene, or the whole project, to video.
     Compile {
         project: PathBuf,
@@ -100,6 +119,12 @@ enum SceneCmd {
     Delete { project: PathBuf, scene: String },
     /// Set a scene's frame rate, or `project` to use the project rate.
     Fps { project: PathBuf, scene: String, fps: String },
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+enum OrderArg {
+    Taken,
+    Name,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -162,6 +187,13 @@ fn run(cli: Cli) -> Result<()> {
         }
         Cmd::Capture { project, scene, count, interval, camera } => {
             capture_cmd(&*backend(mock)?, &project, &scene, count, interval, camera.as_deref())?
+        }
+        Cmd::Import { project, sources, scene, new_scene, order, dry_run } => {
+            let order = match order {
+                OrderArg::Taken => import::Order::Taken,
+                OrderArg::Name => import::Order::Name,
+            };
+            import_cmd(&project, &sources, scene.as_deref(), &new_scene, order, dry_run)?
         }
         Cmd::DeleteLast { project, scene } => {
             let p = open(&project)?;
@@ -277,6 +309,70 @@ fn cameras(backend: &dyn CameraBackend) -> Result<()> {
             }
             Err(e) => println!("\n  could not open: {e}"),
         }
+    }
+    Ok(())
+}
+
+fn import_cmd(
+    project: &Path,
+    sources: &[PathBuf],
+    scene: Option<&str>,
+    new_scene: &str,
+    order: import::Order,
+    dry_run: bool,
+) -> Result<()> {
+    let mut p = open(project)?;
+    let existing = scene.map(|s| p.find_scene(s)).transpose()?;
+    let plan = import::scan(sources, order, existing.as_ref())?;
+
+    println!(
+        "Found {} shots ({} RAW only), {} already in the scene, {} other files ignored",
+        plan.frames.len(),
+        plan.raw_only(),
+        plan.already_imported,
+        plan.ignored
+    );
+    for (path, why) in &plan.unreadable {
+        eprintln!("warning: couldn't read {}: {why}", path.display());
+    }
+    if dry_run {
+        for c in &plan.frames {
+            println!("  {}  ({} files)", c.source, c.files.len());
+        }
+        return Ok(());
+    }
+    if plan.frames.is_empty() {
+        println!("Nothing to import.");
+        return Ok(());
+    }
+
+    let target = match existing {
+        Some(s) => s,
+        None => p.add_scene(new_scene, None)?,
+    };
+    let report = import::import(&target, &plan, |done, total| {
+        eprint!("\rImporting… {done}/{total}");
+        true
+    });
+    eprintln!();
+    for (source, why) in &report.failed {
+        eprintln!("skipped {source}: {why}");
+    }
+    for (frame, source) in &report.truncated {
+        eprintln!("warning: frame {frame} ({source}) looks cut short; check it");
+    }
+    println!(
+        "Imported {} frames into {} {:?}{}",
+        report.imported.len(),
+        target.id(),
+        target.name(),
+        if report.failed.is_empty() { String::new() } else { format!(", {} couldn't be read", report.failed.len()) }
+    );
+    if plan.raw_only() > 0 {
+        println!("{} shots are RAW only: they're kept, but can't be shown or compiled.", plan.raw_only());
+    }
+    if let Some(why) = report.aborted {
+        bail!("import stopped early: {why}");
     }
     Ok(())
 }

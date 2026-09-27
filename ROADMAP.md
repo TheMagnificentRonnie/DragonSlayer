@@ -40,6 +40,7 @@ Each item has a rough complexity rating: **S** (a day), **M** (a week), **L** (a
 - ✅ Minimal view (F) and fill-to-crop viewer *(0.3.0)*
 - ✅ Canon EOS 100D thoroughly tested on Windows *(0.3.0)*
 - ✅ GitHub Actions builds Windows + macOS on every push; releases on demand *(0.3.0)*
+- ✅ Import images / rescue a film from the camera card into a scene, safe on damaged cards, re-runnable (`dragonslayer import`) *(unreleased)*
 
 ---
 
