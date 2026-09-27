@@ -5,6 +5,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver};
 use std::sync::Arc;
 use std::thread;
+use std::time::Duration;
 
 use dragonslayer_core::import::{self, Order, Plan, Report};
 use dragonslayer_core::Scene;
