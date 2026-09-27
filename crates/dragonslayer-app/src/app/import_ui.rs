@@ -129,9 +129,15 @@ impl DragonSlayerApp {
         let (tx, rx) = mpsc::channel();
         let ctx = ctx.clone();
         thread::spawn(move || {
+            let mut last_repaint = std::time::Instant::now();
             let report = import::import(&scene, &plan, |n, _| {
                 done.store(n, Ordering::Relaxed);
-                ctx.request_repaint();
+                // Repaint at most a few times a second: calling request_repaint on every
+                // progress tick from a worker thread hammered egui's viewport lock.
+                if last_repaint.elapsed() > Duration::from_millis(120) {
+                    last_repaint = std::time::Instant::now();
+                    ctx.request_repaint();
+                }
                 !stop.load(Ordering::Relaxed)
             });
             let _ = tx.send(report);
@@ -153,14 +159,25 @@ impl DragonSlayerApp {
             self.import.scanning = None;
             self.import.plan = Some(plan);
         }
-        if let Some(rx) = &self.import.running
-            && let Ok(report) = rx.try_recv()
-        {
-            self.import.running = None;
-            let n = report.imported.len();
-            self.import.report = Some(report);
-            self.refresh();
-            self.info(format!("Imported {n} frames"));
+        if let Some(rx) = &self.import.running {
+            match rx.try_recv() {
+                Ok(report) => {
+                    self.import.running = None;
+                    let n = report.imported.len();
+                    self.import.report = Some(report);
+                    self.refresh();
+                    self.info(format!("Imported {n} frames"));
+                }
+                // The worker died before sending: don't leave the dialog spinning forever.
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    self.import.running = None;
+                    self.import.report = Some(Report {
+                        aborted: Some("import worker stopped unexpectedly".into()),
+                        ..Report::default()
+                    });
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => {}
+            }
         }
 
         let mut rescan = false;

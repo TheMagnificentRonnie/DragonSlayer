@@ -118,15 +118,22 @@ impl Camera for MockCamera {
         let (stop_t, unplugged) = (stop.clone(), self.unplugged.clone());
         let start = self.shots;
         thread::spawn(move || {
-            // Render at half size when tests are running in parallel: 60+ mock cameras all
-            // encoding 640x360 JPEGs on a 3-core Mac runner crushes the runner.
-            let (w, h) = if cfg!(test) { (320, 180) } else { (640, 360) };
+            // Under `cargo test`: encode ONE tiny frame and reuse the bytes. Real live view
+            // renders every frame; here it doesn't matter, and the constant CPU + JPEG
+            // encoder contention was starving other test threads on the Mac CI runner.
+            let cached: Option<Vec<u8>> = cfg!(test).then(|| render(32, 24, 0.0, 70));
             for seq in 0.. {
                 if stop_t.load(Ordering::Relaxed) || unplugged.load(Ordering::Relaxed) {
                     break;
                 }
-                let t = start as f32 + seq as f32 / 15.0;
-                if !producer.send(LiveFrame { seq, jpeg: render(w, h, t, 70) }) {
+                let jpeg = match &cached {
+                    Some(bytes) => bytes.clone(),
+                    None => {
+                        let t = start as f32 + seq as f32 / 15.0;
+                        render(640, 360, t, 70)
+                    }
+                };
+                if !producer.send(LiveFrame { seq, jpeg }) {
                     break;
                 }
                 thread::sleep(Duration::from_millis(66));
