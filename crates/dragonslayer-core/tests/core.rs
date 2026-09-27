@@ -531,3 +531,93 @@ fn projects_from_before_the_rename_open_and_are_relabelled_on_save() {
     future.save().unwrap();
     assert!(Project::open(&root).is_err());
 }
+
+// ---------------------------------------------------------- compile for edit
+
+/// A stand-in ffmpeg: logs its arguments (one run per line) and creates the output
+/// file (its last argument), so compile_each can be tested without encoding video.
+#[cfg(unix)]
+fn fake_ffmpeg(dir: &Path) -> (PathBuf, PathBuf) {
+    use std::os::unix::fs::PermissionsExt;
+    let log = dir.join("ffmpeg.log");
+    let bin = dir.join("fake-ffmpeg");
+    fs::write(&bin, format!("#!/bin/sh\nfor a; do last=\"$a\"; done\necho \"$*\" >> '{}'\n: > \"$last\"\n", log.display()))
+        .unwrap();
+    fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
+    (bin, log)
+}
+
+#[cfg(unix)]
+#[test]
+fn compile_each_writes_one_file_per_scene_named_and_numbered_in_film_order() {
+    use dragonslayer_core::compile::Settings;
+    let tmp = tempfile::tempdir().unwrap();
+    let (ffmpeg, log) = fake_ffmpeg(tmp.path());
+    let mut p = project(tmp.path());
+    p.rename_scene("sc010", "Opening").unwrap();
+    capture::capture(&p, None, fake_shot).unwrap();
+    p.add_scene("The chase: part/2?", None).unwrap();
+    p.set_scene_fps("sc020", Some(6)).unwrap();
+    capture::capture(&p, None, fake_shot).unwrap();
+    capture::capture(&p, None, fake_shot).unwrap();
+    p.add_scene("Empty", None).unwrap();
+
+    let settings = Settings { ffmpeg: Some(ffmpeg), ..Settings::default() };
+    let mut seen: Vec<String> = Vec::new();
+    let mut fractions = Vec::new();
+    let out = compile::compile_each(&p, &settings, |f, name| {
+        fractions.push(f);
+        if !name.is_empty() && seen.last().map(String::as_str) != Some(name) {
+            seen.push(name.to_string());
+        }
+    })
+    .unwrap();
+
+    assert_eq!(seen, ["Opening", "The chase: part/2?"]);
+    assert!(fractions.windows(2).all(|w| w[0] <= w[1]), "progress never goes backwards: {fractions:?}");
+    assert_eq!(fractions.last(), Some(&1.0));
+    assert!(out.dir.starts_with(tmp.path().join("Film/exports")));
+    assert!(out.dir.file_name().unwrap().to_string_lossy().starts_with("Film_for-edit_"));
+    let names: Vec<String> =
+        out.files.iter().map(|f| f.path.file_name().unwrap().to_string_lossy().into_owned()).collect();
+    assert_eq!(names, ["01 Opening.mp4", "02 The chase_ part_2_.mp4"]);
+    assert!(out.files.iter().all(|f| f.path.exists()));
+    assert_eq!(out.files.iter().map(|f| f.frames).collect::<Vec<_>>(), [1, 2]);
+    assert_eq!(out.warnings.len(), 1, "empty scene is skipped with a warning");
+
+    // Each scene renders at its own rate; no concat scripts are left behind.
+    let runs = fs::read_to_string(&log).unwrap();
+    let runs: Vec<&str> = runs.lines().collect();
+    assert_eq!(runs.len(), 2);
+    assert!(runs[0].contains("fps=12"), "{}", runs[0]);
+    assert!(runs[1].contains("fps=6"), "{}", runs[1]);
+    let leftovers: Vec<_> = fs::read_dir(&out.dir).unwrap().filter_map(|e| e.ok()).filter(|e| e.file_name().to_string_lossy().starts_with('.')).collect();
+    assert!(leftovers.is_empty(), "concat scripts cleaned up");
+}
+
+#[cfg(unix)]
+#[test]
+fn compile_each_fps_override_applies_to_every_scene() {
+    use dragonslayer_core::compile::Settings;
+    let tmp = tempfile::tempdir().unwrap();
+    let (ffmpeg, log) = fake_ffmpeg(tmp.path());
+    let mut p = project(tmp.path());
+    capture::capture(&p, None, fake_shot).unwrap();
+    p.add_scene("Two", None).unwrap();
+    p.set_scene_fps("sc020", Some(6)).unwrap();
+    capture::capture(&p, None, fake_shot).unwrap();
+
+    let settings = Settings { ffmpeg: Some(ffmpeg), fps_override: Some(24), ..Settings::default() };
+    compile::compile_each(&p, &settings, |_, _| {}).unwrap();
+    let runs = fs::read_to_string(&log).unwrap();
+    assert!(runs.lines().all(|l| l.contains("fps=24")), "{runs}");
+}
+
+#[test]
+fn compile_each_errors_when_nothing_to_compile() {
+    let tmp = tempfile::tempdir().unwrap();
+    let p = project(tmp.path());
+    let err = compile::compile_each(&p, &Default::default(), |_, _| {}).unwrap_err();
+    assert!(err.to_string().contains("no frames"), "{err}");
+    assert!(!tmp.path().join("Film/exports").read_dir().map(|mut d| d.next().is_some()).unwrap_or(false), "no empty folder left behind");
+}

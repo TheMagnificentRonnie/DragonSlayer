@@ -162,8 +162,17 @@ impl DragonSlayerApp {
             )
             .clicked()
         {
-            self.compile.open = true;
-            self.compile.result = None;
+            self.open_compile(None);
+        }
+        if ui
+            .add(
+                egui::Button::new(format!("{}  Compile for edit…", ph::FOLDER))
+                    .min_size(Vec2::new(ui.available_width(), 30.0)),
+            )
+            .on_hover_text("One ProRes file per scene, named after the scene, in its own folder")
+            .clicked()
+        {
+            self.open_compile(Some(Scope::Each));
         }
         ui.add_space(6.0);
         ui.label(

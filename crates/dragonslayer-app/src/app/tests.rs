@@ -653,13 +653,91 @@ fn compile_dialog_shows_progress_and_the_result() {
     r.click("Compile");
     r.wait_for("compile finished", |a| a.compile.result.is_some());
     match r.app().compile.result.as_ref().unwrap() {
-        Ok(out) => {
+        Ok(CompileDone::One(out)) => {
             assert_eq!(out.frames, 3);
             assert!(out.path.is_file());
         }
+        Ok(CompileDone::Each(_)) => panic!("whole-project compile produced a folder"),
         Err(e) => panic!("compile failed: {e}"),
     }
     assert!(r.has_label("Saved 3 frames to"));
+}
+
+fn have_ffmpeg() -> bool {
+    let ok = std::process::Command::new("ffmpeg").arg("-version").output().is_ok();
+    if !ok {
+        eprintln!("ffmpeg not on PATH; skipping");
+    }
+    ok
+}
+
+#[test]
+fn compile_for_edit_writes_one_named_file_per_scene_into_a_folder() {
+    if !have_ffmpeg() {
+        return;
+    }
+    let mut r = rig().connected();
+    r.capture_frames(2);
+    r.click("Add scene");
+    r.capture_frames(1);
+    r.app_mut().open_compile(Some(Scope::Each));
+    r.settle(2);
+    assert_eq!(r.app().compile.format, Format::ProRes, "compile for edit defaults to ProRes");
+    assert!(r.has_label("A new folder in exports/"), "for-edit hint shown");
+    r.click("Compile");
+    r.wait_for("compile finished", |a| a.compile.result.is_some());
+    match r.app().compile.result.as_ref().unwrap() {
+        Ok(CompileDone::Each(out)) => {
+            assert!(out.dir.starts_with(r.root.join("exports")));
+            let names: Vec<String> =
+                out.files.iter().map(|f| f.path.file_name().unwrap().to_string_lossy().into_owned()).collect();
+            assert_eq!(names.len(), 2, "{names:?}");
+            assert!(names[0].starts_with("01 ") && names[0].ends_with(".mov"), "{names:?}");
+            assert!(names[1].starts_with("02 ") && names[1].ends_with(".mov"), "{names:?}");
+            assert_eq!(out.files.iter().map(|f| f.frames).collect::<Vec<_>>(), [2, 1]);
+            assert!(out.files.iter().all(|f| f.path.is_file()));
+        }
+        Ok(CompileDone::One(_)) => panic!("compile for edit produced a single file"),
+        Err(e) => panic!("compile failed: {e}"),
+    }
+    assert!(r.has_label("Saved 2 scenes to"));
+}
+
+#[test]
+fn compile_can_target_a_scene_other_than_the_active_one() {
+    if !have_ffmpeg() {
+        return;
+    }
+    let mut r = rig().connected();
+    r.capture_frames(2);
+    let first = r.app().scenes[0].id.clone();
+    r.click("Add scene");
+    r.capture_frames(1);
+    r.app_mut().open_compile(None);
+    {
+        let d = &mut r.app_mut().compile;
+        d.scope = Scope::Scene;
+        d.scene = Some(first.clone());
+    }
+    r.settle(2);
+    r.click("Compile");
+    r.wait_for("compile finished", |a| a.compile.result.is_some());
+    match r.app().compile.result.as_ref().unwrap() {
+        Ok(CompileDone::One(out)) => {
+            assert_eq!(out.frames, 2, "compiled the first scene, not the active second one");
+            assert!(out.path.file_name().unwrap().to_string_lossy().contains(&first));
+        }
+        other => panic!("unexpected result: {:?}", other.as_ref().err()),
+    }
+}
+
+#[test]
+fn opening_compile_defaults_the_scene_choice_to_the_active_scene() {
+    let mut r = rig().connected();
+    r.click("Add scene");
+    let active = r.app().active_row().map(|row| row.id.clone());
+    r.app_mut().open_compile(None);
+    assert_eq!(r.app().compile.scene, active);
 }
 
 // -------------------------------------------------- resume & crash recovery

@@ -98,6 +98,10 @@ enum Cmd {
         /// Without this, the project fps (and per-scene overrides) are used.
         #[arg(long)]
         fps: Option<u32>,
+        /// Compile for edit: one file per scene, named after the scene, in a new folder
+        /// under exports/.
+        #[arg(long, conflicts_with = "scene")]
+        each: bool,
     },
 }
 
@@ -204,7 +208,7 @@ fn run(cli: Cli) -> Result<()> {
             let frame = s.delete_last()?;
             println!("Moved frame {frame} of {} to trash ({} left)", s.name(), s.frame_count()?);
         }
-        Cmd::Compile { project, scene, format, resolution, crop, fps } => {
+        Cmd::Compile { project, scene, format, resolution, crop, fps, each } => {
             let p = open(&project)?;
             let settings = Settings {
                 format: match format {
@@ -220,6 +224,26 @@ fn run(cli: Cli) -> Result<()> {
                 fps_override: fps,
                 ffmpeg: None,
             };
+            if each {
+                let mut last = -1;
+                let out = compile::compile_each(&p, &settings, |f, name| {
+                    let pct = (f * 100.0) as i32;
+                    if pct != last {
+                        last = pct;
+                        eprint!("\rCompiling… {pct:>3}%  {name:<40}");
+                    }
+                });
+                eprintln!();
+                let out = out?;
+                for w in &out.warnings {
+                    eprintln!("warning: {w}");
+                }
+                for f in &out.files {
+                    println!("Wrote {} ({} frames)", f.path.display(), f.frames);
+                }
+                println!("{} scenes in {}", out.files.len(), out.dir.display());
+                return Ok(());
+            }
             let mut last = -1;
             let out = compile::compile_with_progress(&p, scene.as_deref(), &settings, |f| {
                 let pct = (f * 100.0) as i32;

@@ -94,6 +94,7 @@ DragonSlayer is deliberately kept small: it does one job (capture + compile) and
 - **Import images / rescue from the card** (Tools → Import images…) — rebuild a scene from the camera card or any folder if a project was lost or damaged. JPEG + RAW pairs become one frame, in the order they were taken; unreadable files on a damaged card are skipped and listed, cut-short JPEGs are flagged, and re-running skips what's already in. The card is only read.
 - **RAW + JPEG** kept side by side when the camera supports it
 - **Compile** to H.264 MP4 or ProRes 422 MOV, source resolution / 4K / 1080p, crop or fit, with a progress bar and time remaining
+  - the whole film, any single scene, or **Compile for edit**: one file per scene, named after it and numbered in film order (`01 Opening.mov`, `02 The chase.mov`), in its own folder under `exports/` — ready to drop into an editor
 - **Prevents system sleep** during a shooting session
 - **Windows driver setup built in** — bundles Zadig for the one-time WinUSB swap
 - **Self-contained Mac app** — download, drag to Applications, done; camera drivers and ffmpeg are inside
@@ -233,6 +234,7 @@ dragonslayer import MyFilm E:/DCIM             # into a new scene "Imported"
 dragonslayer import MyFilm E:/DCIM --scene sc010   # after sc010's frames
 dragonslayer compile MyFilm --resolution 1080p # render project
 dragonslayer compile MyFilm sc010 --format prores --resolution 4k --crop
+dragonslayer compile MyFilm --each --format prores   # one file per scene, for editing
 ```
 
 Scenes are addressed by ID (`sc010`) or display name. Videos land in `<project>/exports/` and are never overwritten.

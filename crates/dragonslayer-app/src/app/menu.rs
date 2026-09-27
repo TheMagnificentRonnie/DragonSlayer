@@ -139,8 +139,15 @@ impl DragonSlayerApp {
                     .add_enabled(self.project.is_some(), egui::Button::new(format!("{}  Compile…", ph::EXPORT)))
                     .clicked()
                 {
-                    self.compile.open = true;
-                    self.compile.result = None;
+                    self.open_compile(None);
+                    ui.close();
+                }
+                if ui
+                    .add_enabled(self.project.is_some(), egui::Button::new(format!("{}  Compile for edit…", ph::FOLDER)))
+                    .on_hover_text("One ProRes file per scene, named after the scene, in its own folder")
+                    .clicked()
+                {
+                    self.open_compile(Some(Scope::Each));
                     ui.close();
                 }
             });

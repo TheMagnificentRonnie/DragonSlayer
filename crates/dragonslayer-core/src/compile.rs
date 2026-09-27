@@ -147,6 +147,74 @@ pub fn compile_with_progress(
     Ok(Output { path: out, frames: shots.len(), warnings })
 }
 
+/// Result of [`compile_each`]: one video per scene, gathered in one folder.
+#[derive(Debug)]
+pub struct EachOutput {
+    pub dir: PathBuf,
+    pub files: Vec<Output>,
+    pub warnings: Vec<String>,
+}
+
+/// "Compile for edit": renders every non-empty scene to its own file inside a new
+/// folder `exports/<project>_for-edit_<stamp>/`. Files are named after the scenes
+/// and numbered in film order (`01 Opening.mov`, `02 The chase.mov`, …) so they sort
+/// correctly in an editor's media bin. Each scene plays at its own rate unless
+/// `fps_override` is set. `on_progress(fraction, scene_name)` reports 0.0–1.0 across
+/// the whole batch, weighted by each scene's running time.
+pub fn compile_each(
+    project: &Project,
+    settings: &Settings,
+    mut on_progress: impl FnMut(f32, &str),
+) -> Result<EachOutput> {
+    let mut plans = Vec::new();
+    let mut warnings = Vec::new();
+    for s in project.scenes()? {
+        if s.frame_count()? == 0 {
+            warnings.push(format!("scene {:?} ({}) is empty; skipped", s.name(), s.id()));
+            continue;
+        }
+        let (shots, w) = plan(project, Some(s.id()), settings.fps_override)?;
+        warnings.extend(w);
+        plans.push((s, shots));
+    }
+    if plans.is_empty() {
+        return Err(Error::NothingToCompile("the project has no frames".into()));
+    }
+
+    let exports = paths::exports_dir(&project.root);
+    let stamp = OffsetDateTime::now_local()
+        .unwrap_or_else(|_| OffsetDateTime::now_utc())
+        .format(format_description!("[year][month][day]-[hour][minute][second]"))
+        .expect("valid format");
+    let dir = paths::unique_path(&exports, &format!("{}_for-edit_{}", sanitise(project.name()), stamp));
+    fs::create_dir_all(&dir).at(&dir)?;
+
+    let ffmpeg = settings.ffmpeg.clone().unwrap_or_else(|| "ffmpeg".into());
+    let secs = |shots: &[Shot]| shots.iter().map(|s| s.seconds).sum::<f64>();
+    let total: f64 = plans.iter().map(|(_, shots)| secs(shots)).sum();
+    let width = if plans.len() >= 100 { 3 } else { 2 };
+    let mut done = 0.0;
+    let mut files = Vec::new();
+    for (i, (s, shots)) in plans.iter().enumerate() {
+        let name = format!("{:0width$} {}.{}", i + 1, file_name_safe(s.name()), settings.format.ext());
+        let out = paths::unique_path(&dir, &name);
+        let list = dir.join(format!(".{}.concat.txt", out.file_stem().unwrap().to_string_lossy()));
+        atomic::write_atomic(&list, concat_list(shots).as_bytes())?;
+        let fps = settings.fps_override.unwrap_or_else(|| project.fps_for(s));
+        let scene_secs = secs(shots);
+        on_progress((done / total) as f32, s.name());
+        let result = run_ffmpeg(&ffmpeg, ffmpeg_args(&list, &out, fps, settings), scene_secs, &mut |f| {
+            on_progress(((done + f64::from(f) * scene_secs) / total) as f32, s.name());
+        });
+        let _ = fs::remove_file(&list);
+        result?;
+        done += scene_secs;
+        files.push(Output { path: out, frames: shots.len(), warnings: Vec::new() });
+    }
+    on_progress(1.0, "");
+    Ok(EachOutput { dir, files, warnings })
+}
+
 fn run_ffmpeg(ffmpeg: &Path, args: Vec<String>, total_secs: f64, on_progress: &mut impl FnMut(f32)) -> Result<()> {
     let mut child = Command::new(ffmpeg)
         .args(args)
@@ -258,6 +326,17 @@ pub fn ffmpeg_args(list: &Path, out: &Path, fps: u32, settings: &Settings) -> Ve
 fn escape(p: &Path) -> String {
     // Forward slashes work for ffmpeg on Windows too; quotes are closed, escaped and reopened.
     p.to_string_lossy().replace('\\', "/").replace('\'', r"'\''")
+}
+
+/// A scene name as a file name: keeps spaces and punctuation people type, replaces
+/// characters that are illegal or awkward on Windows/macOS, trims trailing dots/spaces.
+fn file_name_safe(name: &str) -> String {
+    let s: String = name
+        .chars()
+        .map(|c| if matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') || c.is_control() { '_' } else { c })
+        .collect();
+    let s = s.trim().trim_end_matches(['.', ' ']).to_string();
+    if s.is_empty() { "scene".into() } else { s }
 }
 
 fn sanitise(name: &str) -> String {

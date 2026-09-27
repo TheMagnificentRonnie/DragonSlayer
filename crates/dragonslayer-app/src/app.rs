@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::mpsc::{self, Receiver};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -81,13 +81,25 @@ struct SceneRow {
 
 #[derive(Clone, Copy, PartialEq)]
 enum Scope {
+    /// One scene, picked in the dialog (`CompileDialog::scene`).
     Scene,
+    /// The whole film as one video.
     Project,
+    /// Compile for edit: one file per scene, named after it, in a new folder.
+    Each,
+}
+
+/// What a finished compile produced.
+enum CompileDone {
+    One(compile::Output),
+    Each(compile::EachOutput),
 }
 
 struct CompileDialog {
     open: bool,
     scope: Scope,
+    /// Scene id for `Scope::Scene`.
+    scene: Option<String>,
     format: Format,
     resolution: Resolution,
     framing: Framing,
@@ -95,11 +107,13 @@ struct CompileDialog {
     /// Some(n) = compile at n fps: every scene's per-frame duration becomes 1/n,
     /// so the whole film plays back at that rate regardless of what it was captured at.
     fps: Option<u32>,
-    running: Option<Receiver<Result<compile::Output, String>>>,
+    running: Option<Receiver<Result<CompileDone, String>>>,
     /// 0.0–1.0 as f32 bits, written by the compile thread.
     progress: Arc<AtomicU32>,
+    /// Scene being rendered, for compile-for-edit's progress text.
+    progress_scene: Arc<Mutex<String>>,
     started: Instant,
-    result: Option<Result<compile::Output, String>>,
+    result: Option<Result<CompileDone, String>>,
 }
 
 impl Default for CompileDialog {
@@ -107,12 +121,14 @@ impl Default for CompileDialog {
         Self {
             open: false,
             scope: Scope::Project,
+            scene: None,
             format: Format::H264,
             resolution: Resolution::Source,
             framing: Framing::Fit,
             fps: None,
             running: None,
             progress: Arc::new(AtomicU32::new(0)),
+            progress_scene: Arc::default(),
             started: Instant::now(),
             result: None,
         }
