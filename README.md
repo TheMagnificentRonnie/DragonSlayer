@@ -80,11 +80,13 @@ DragonSlayer is deliberately kept small: it does one job (capture + compile) and
 ## Features
 
 - **Live view over USB** on any camera libgphoto2 supports live view for
-- **Two modes** — *Add Frames* (live view, Space captures) and *Preview* (review what you've shot); Tab flips between them
+- **Two modes** — *Capture* (live view, Space captures) and *Preview* (review what you've shot, no capturing); Tab flips between them
 - **Filmstrip timeline** of clickable thumbnails, arrow-key frame stepping and playback at the scene's frame rate
-- **Picture-in-picture** — the other view (live or last frame) in the corner, toggle from the View menu
+- **Picture-in-picture** (optional) — the other view (live or last frame) in the corner; off by default, turn it on in File → Preferences
 - **Dockable panels** — Scenes, Viewer, Timeline, Camera, Onion Skin and Export; drag any tab to rearrange
 - **Three themes** — Dark Teal, Dark Amber, Light (Preferences → Theme)
+- **Minimal view** (F) — the live view fills the screen, with a small floating bar for Capture, onion skin and exit that fades when the mouse is still
+- **Fill or fit** — the picture fills the viewer edge to edge (cropping the overhang), or shows the whole frame with bars (Preferences → Viewer)
 - **Onion skin** — full-frame ghost or edge-detected outlines of the previous frame, so you can see exactly how far you've moved between shots
 - **Scenes** with independent frame rates, drag-to-reorder, rename, per-scene trash
 - **Never lose a frame** — every capture is a filesystem transaction, replayed on the next launch if the app crashes mid-shot
@@ -130,15 +132,16 @@ Prefer to build it yourself? See [Build from source](#build-from-source).
 
 | Key | Action |
 |---|---|
-| **Space** | Capture the next frame into the active scene |
+| **Space** | Capture the next frame into the active scene (Capture mode only) |
 | **Backspace** | Move the last frame to the scene's trash folder |
 | **O** | Toggle onion skin on/off |
-| **Tab** | Switch between Add Frames and Preview |
+| **Tab** | Switch between Capture and Preview |
 | **← / →** | Previous / next frame (hold to scrub; **Shift** jumps 10) |
 | **Home / End** | First / last frame |
 | **P** | Play / pause at the scene's frame rate |
 | **H** | Open the in-app help |
-| **Esc** | Close a modal / back to Add Frames |
+| **F** | Minimal view — full-screen capture with a floating control bar |
+| **Esc** | Close a modal / leave minimal view / back to Capture |
 
 ## Supported cameras
 

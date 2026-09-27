@@ -27,7 +27,7 @@ Each item has a rough complexity rating: **S** (a day), **M** (a week), **L** (a
 - ✅ Sleep prevention during session
 - ✅ Mock camera for demos and CI
 - ✅ MIT-licensed, open source, portable Windows bundle
-- ✅ Two modes: Add Frames (live view + capture) and Preview (review), Tab to switch *(0.2.0)*
+- ✅ Two modes: Capture (live view + capture) and Preview (review only), Tab to switch *(0.2.0)*
 - ✅ Filmstrip timeline with clickable thumbnails; arrow / Home / End / Shift-arrow navigation; play at scene fps *(0.2.0)*
 - ✅ Picture-in-picture of the other view *(0.2.0)*
 - ✅ Dockable panels (egui_dock), menu bar, Phosphor icons, three themes *(0.2.0)*
@@ -97,7 +97,7 @@ What makes DragonSlayer feel like an intentional product rather than a hobby pro
 - 🚧 **Timeline design** — Dragonframe-style horizontal filmstrip with playhead, in/out markers, loop region.
 - ⭐ **Empty states** — the welcome screen is currently just two buttons on a blank canvas. Illustrated "start here" flow: create project, connect camera, capture first frame.
 - ⭐ **Status states** — the current amber/red dot is fine but the info hierarchy needs work. Persistent camera info panel with battery, storage, exposure readout.
-- ⭐ **Focus mode** — F key hides all panels, viewer goes full-screen with just a minimal control bar. For actual shooting.
+- ✅ **Focus mode** *(as "Minimal view")* — F key hides all panels, viewer goes full-screen with just a minimal control bar. For actual shooting.
 - ⭐ **Animated transitions** — panel show/hide, modal open/close, capture flash. Nothing gratuitous, just enough to feel responsive.
 - ⭐ **Hover / focus / active states** — currently a bit flat. Every clickable thing needs three visual states.
 

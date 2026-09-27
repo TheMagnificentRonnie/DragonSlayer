@@ -124,6 +124,16 @@ pub struct DragonSlayerApp {
     onion_edges: bool,
     /// Show the "other view" picture-in-picture in the viewer corner.
     pip_on: bool,
+    /// Scale the picture to fill the viewer, cropping edges, instead of letterboxing.
+    fill_viewer: bool,
+    /// Minimal view: full-screen live view with a small floating control bar.
+    minimal: bool,
+    /// Whether the window is currently full screen on our account (tracks `minimal`).
+    fullscreen_applied: bool,
+    /// Pointer was over the minimal-view bar last frame (keeps it from fading).
+    minimal_bar_hovered: bool,
+    /// Mode as of the end of the previous frame, so mode switches can be logged.
+    logged_mode_is_capture: bool,
 
     images: Images,
     renaming: Option<(String, String)>,
@@ -158,17 +168,17 @@ struct Interval {
     next_at: Option<Instant>,
 }
 
-/// Two modes: Add Frames (live view, Space captures) and Preview (browse the
+/// Two modes: Capture (live view, Space captures) and Preview (browse the
 /// captured frames of the active scene with arrows / play / timeline).
 #[derive(Clone, Copy, PartialEq, Debug)]
 enum Mode {
-    AddFrames,
+    Capture,
     Preview { index: usize, playing: bool, last_advance: Instant },
 }
 
 impl Mode {
-    fn is_add_frames(self) -> bool {
-        matches!(self, Mode::AddFrames)
+    fn is_capture(self) -> bool {
+        matches!(self, Mode::Capture)
     }
     fn is_playing(self) -> bool {
         matches!(self, Mode::Preview { playing: true, .. })
@@ -201,7 +211,7 @@ impl DragonSlayerApp {
             session: Session::start(backend, ctx.clone()),
             status: Status::Searching,
             live: None,
-            mode: Mode::AddFrames,
+            mode: Mode::Capture,
             want_live_cached: None,
             dock_state: Tab::default_layout(),
             theme_choice: crate::theme::ThemeChoice::DarkTeal,
@@ -216,7 +226,12 @@ impl DragonSlayerApp {
             onion_count: 1,
             onion_opacity: 0.55,
             onion_edges: true,
-            pip_on: true,
+            pip_on: false,
+            fill_viewer: true,
+            minimal: false,
+            fullscreen_applied: false,
+            minimal_bar_hovered: false,
+            logged_mode_is_capture: true,
             images: Images::new(&ctx),
             help_open: false,
             help_os: if cfg!(target_os = "macos") { HelpOs::Mac } else { HelpOs::Windows },
@@ -263,6 +278,7 @@ impl DragonSlayerApp {
 
     fn set_project(&mut self, p: Project) {
         self.project = Some(p);
+        self.mode = Mode::Capture;
         self._awake = keepawake::Builder::default()
             .display(true)
             .idle(true)
@@ -302,7 +318,7 @@ impl DragonSlayerApp {
                 if let Mode::Preview { index, .. } = &mut self.mode {
                     match self.frames.len().checked_sub(1) {
                         Some(last) => *index = (*index).min(last),
-                        None => self.mode = Mode::AddFrames,
+                        None => self.mode = Mode::Capture,
                     }
                 }
             }
@@ -333,6 +349,10 @@ impl DragonSlayerApp {
     }
 
     fn capture(&mut self) {
+        if !self.mode.is_capture() {
+            self.info("Preview mode: switch to Capture (Tab) to take frames");
+            return;
+        }
         if self.capturing || !self.camera_ready() {
             return;
         }
@@ -346,7 +366,7 @@ impl DragonSlayerApp {
     /// subsequent shots fire `every` seconds after the previous one COMPLETES,
     /// so a slow camera slides the schedule instead of pileup.
     fn start_interval(&mut self) {
-        if self.interval.is_some() || self.interval_count == 0 {
+        if self.interval.is_some() || self.interval_count == 0 || !self.mode.is_capture() {
             return;
         }
         self.interval =
@@ -371,6 +391,10 @@ impl DragonSlayerApp {
             _ => false,
         };
         if !should_fire {
+            return;
+        }
+        if !self.mode.is_capture() {
+            self.stop_interval("switched to Preview");
             return;
         }
         // Bail out cleanly if the camera or project disappeared under us.
@@ -486,8 +510,8 @@ impl DragonSlayerApp {
             return;
         }
         // Keys we handle ourselves. Arrow keys and Home/End are navigation.
-        const KEYS: [Key; 11] = [
-            Key::Space, Key::Backspace, Key::O, Key::Tab, Key::H, Key::P,
+        const KEYS: [Key; 12] = [
+            Key::Space, Key::Backspace, Key::O, Key::Tab, Key::H, Key::P, Key::F,
             Key::ArrowLeft, Key::ArrowRight, Key::Home, Key::End, Key::Escape,
         ];
         let mut pressed = Vec::new();
@@ -513,7 +537,7 @@ impl DragonSlayerApp {
                     true
                 }
             }
-            egui::Event::Text(t) => !matches!(t.as_str(), " " | "o" | "O" | "h" | "H" | "p" | "P"),
+            egui::Event::Text(t) => !matches!(t.as_str(), " " | "o" | "O" | "h" | "H" | "p" | "P" | "f" | "F"),
             _ => true,
         });
         self.keys.extend(pressed);
@@ -531,6 +555,12 @@ impl DragonSlayerApp {
 
     fn handle_keys(&mut self) {
         for key in std::mem::take(&mut self.keys) {
+            // Minimal view is capture-only: no Preview navigation.
+            if self.minimal
+                && matches!(key, Key::Tab | Key::P | Key::ArrowLeft | Key::ArrowRight | Key::Home | Key::End)
+            {
+                continue;
+            }
             match key {
                 Key::Space => self.capture(),
                 Key::Backspace => self.delete_last(),
@@ -542,9 +572,96 @@ impl DragonSlayerApp {
                 Key::ArrowRight => self.step(1),
                 Key::Home => self.jump_to(Some(0)),
                 Key::End => self.jump_to_end(),
-                Key::Escape => self.mode = Mode::AddFrames,
+                Key::F => self.toggle_minimal(),
+                Key::Escape if self.minimal => self.minimal = false,
+                Key::Escape => self.mode = Mode::Capture,
                 _ => {}
             }
+        }
+    }
+
+    /// Floating control bar for minimal view. Fades out when the mouse is still,
+    /// stays while hovered.
+    fn minimal_bar(&mut self, ctx: &egui::Context) {
+        use egui_phosphor::regular as ph;
+        let pal = crate::theme::palette();
+        let idle = ctx.input(|i| i.pointer.time_since_last_movement());
+        let visible = idle < 2.5 || self.minimal_bar_hovered || self.capturing;
+        let opacity = ctx.animate_bool_with_time(egui::Id::new("minimal bar fade"), visible, 0.35);
+        if opacity <= 0.0 {
+            self.minimal_bar_hovered = false;
+            return;
+        }
+        let area = egui::Area::new(egui::Id::new("minimal bar"))
+            .anchor(Align2::CENTER_BOTTOM, Vec2::new(0.0, -24.0))
+            .order(egui::Order::Foreground)
+            .show(ctx, |ui| {
+                ui.multiply_opacity(opacity);
+                egui::Frame::popup(ui.style()).inner_margin(Margin::same(10)).show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        let (dot, tip) = match &self.status {
+                            Status::Connected { name, .. } => (pal.ok, format!("{name} · connected")),
+                            Status::Searching => (pal.warn, "No camera".to_string()),
+                            Status::WrongDriver { .. } => (pal.warn, "Camera needs driver setup".to_string()),
+                            Status::Problem { message, .. } => (pal.error, message.clone()),
+                            Status::NoBackend => (Color32::GRAY, "No camera support in this build".to_string()),
+                        };
+                        let (r, resp) = ui.allocate_exact_size(Vec2::splat(12.0), Sense::hover());
+                        ui.painter().circle_filled(r.center(), 5.0, dot);
+                        resp.on_hover_text(tip);
+
+                        if let Some(row) = self.active_row() {
+                            ui.label(RichText::new(format!("{} · {} frames", row.name, row.count)).monospace());
+                        }
+                        ui.separator();
+
+                        let can_capture = self.camera_ready() && !self.capturing && self.active_row().is_some();
+                        let label = if self.capturing {
+                            format!("{}  Capturing…", ph::RECORD)
+                        } else {
+                            format!("{}  Capture", ph::CAMERA)
+                        };
+                        let capture = egui::Button::new(RichText::new(label).size(16.0).strong().color(pal.on_accent))
+                            .fill(pal.accent)
+                            .min_size(Vec2::new(140.0, 36.0));
+                        if ui.add_enabled(can_capture, capture).on_hover_text("Space").clicked() {
+                            self.capture();
+                        }
+                        if let Some(iv) = self.interval {
+                            ui.label(format!("{}  {}/{}", ph::TIMER, iv.done, iv.total));
+                            if ui.button(format!("{}  Stop", ph::STOP)).clicked() {
+                                self.stop_interval("stopped");
+                            }
+                        }
+                        ui.separator();
+
+                        if ui
+                            .selectable_label(self.onion_on, format!("{}  Onion", ph::STACK))
+                            .on_hover_text("O")
+                            .clicked()
+                        {
+                            self.onion_on = !self.onion_on;
+                        }
+                        if ui.button(ph::QUESTION).on_hover_text("Help (H)").clicked() {
+                            self.help_open = true;
+                        }
+                        if ui.button(format!("{}  Exit", ph::CORNERS_IN)).on_hover_text("F or Esc").clicked() {
+                            self.minimal = false;
+                        }
+                    });
+                });
+            });
+        self.minimal_bar_hovered = area.response.contains_pointer();
+    }
+
+    /// Minimal view needs a project to capture into, and always runs in Capture mode.
+    fn toggle_minimal(&mut self) {
+        if self.project.is_none() {
+            return;
+        }
+        self.minimal = !self.minimal;
+        if self.minimal {
+            self.mode = Mode::Capture;
         }
     }
 
@@ -553,11 +670,11 @@ impl DragonSlayerApp {
     /// Ctrl-Tab-style toggle between live view and the last captured frame.
     fn toggle_live_last(&mut self) {
         self.mode = match self.mode {
-            Mode::AddFrames => match self.frames.len().checked_sub(1) {
+            Mode::Capture => match self.frames.len().checked_sub(1) {
                 Some(i) => Mode::Preview { index: i, playing: false, last_advance: Instant::now() },
-                None => Mode::AddFrames,
+                None => Mode::Capture,
             },
-            _ => Mode::AddFrames,
+            _ => Mode::Capture,
         };
     }
 
@@ -596,7 +713,7 @@ impl DragonSlayerApp {
                 // Pause on the current frame.
                 Mode::Preview { index, playing: false, last_advance: Instant::now() }
             }
-            Mode::AddFrames => Mode::Preview { index: 0, playing: true, last_advance: Instant::now() },
+            Mode::Capture => Mode::Preview { index: 0, playing: true, last_advance: Instant::now() },
             Mode::Preview { index, playing: false, .. } => {
                 let start = if index == self.frames.len() - 1 { 0 } else { index };
                 Mode::Preview { index: start, playing: true, last_advance: Instant::now() }
@@ -611,7 +728,7 @@ impl DragonSlayerApp {
         // any Preview state here, which auto-advanced frames after every keypress.
         let Mode::Preview { index, last_advance, playing: true } = self.mode else { return };
         if self.frames.is_empty() {
-            self.mode = Mode::AddFrames;
+            self.mode = Mode::Capture;
             return;
         }
         let fps = self
@@ -675,6 +792,12 @@ impl DragonSlayerApp {
                             crate::theme::install(&ctx, choice);
                         }
                     }
+                    ui.separator();
+                    ui.label(RichText::new("Viewer").small().color(crate::theme::palette().text_muted));
+                    ui.checkbox(&mut self.fill_viewer, format!("{}  Fill viewer (crop edges)", ph::CROP))
+                        .on_hover_text("Scale the picture to fill the viewer. Turn off to see the whole frame with bars.");
+                    ui.checkbox(&mut self.pip_on, format!("{}  Picture-in-picture", ph::IMAGE_SQUARE))
+                        .on_hover_text("Shows the last captured frame in a corner while on live view, or the live feed while in Preview.");
                 });
                 ui.separator();
                 if ui.button(format!("{}  Quit", ph::SIGN_OUT)).clicked() {
@@ -683,14 +806,14 @@ impl DragonSlayerApp {
             });
             ui.menu_button(format!("{}  View", ph::EYE), |ui| {
                 if ui
-                    .selectable_label(self.mode.is_add_frames(), format!("{}  Add Frames", ph::VIDEO_CAMERA))
+                    .selectable_label(self.mode.is_capture(), format!("{}  Capture", ph::VIDEO_CAMERA))
                     .clicked()
                 {
-                    self.mode = Mode::AddFrames;
+                    self.mode = Mode::Capture;
                     ui.close();
                 }
                 let can_preview = !self.frames.is_empty();
-                let preview_selected = !self.mode.is_add_frames();
+                let preview_selected = !self.mode.is_capture();
                 let preview_label = format!("{}  Preview", ph::FILM_STRIP);
                 let clicked = ui
                     .add_enabled_ui(can_preview, |ui| ui.selectable_label(preview_selected, preview_label))
@@ -700,10 +823,17 @@ impl DragonSlayerApp {
                     self.jump_to_end();
                     ui.close();
                 }
+                if ui
+                    .add_enabled(self.project.is_some(), egui::Button::new(format!("{}  Minimal view (F)", ph::CORNERS_OUT)))
+                    .on_hover_text("Full-screen live view with a small floating control bar")
+                    .clicked()
+                {
+                    self.toggle_minimal();
+                    ui.close();
+                }
                 ui.separator();
                 ui.checkbox(&mut self.onion_on, format!("{}  Onion skin (O)", ph::STACK));
                 ui.checkbox(&mut self.onion_edges, format!("{}  Outlines only", ph::EYE));
-                ui.checkbox(&mut self.pip_on, format!("{}  Picture-in-picture", ph::IMAGE_SQUARE));
             });
             ui.menu_button(format!("{}  Scene", ph::FILM_STRIP), |ui| {
                 let can = self.project.is_some();
@@ -782,10 +912,10 @@ impl DragonSlayerApp {
                 ui.separator();
                 // Mode chip — segmented, icon-driven.
                 let has_frames = !self.frames.is_empty();
-                let in_add = self.mode.is_add_frames();
-                let add_txt = format!("{}  Add Frames", ph::VIDEO_CAMERA);
+                let in_add = self.mode.is_capture();
+                let add_txt = format!("{}  Capture", ph::VIDEO_CAMERA);
                 if ui.selectable_label(in_add, add_txt).clicked() {
-                    self.mode = Mode::AddFrames;
+                    self.mode = Mode::Capture;
                 }
                 let prev_txt = format!("{}  Preview", ph::FILM_STRIP);
                 let clicked = ui
@@ -799,6 +929,11 @@ impl DragonSlayerApp {
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 if ui.button(format!("{}  Help", ph::QUESTION)).on_hover_text("H").clicked() {
                     self.help_open = true;
+                }
+                if self.project.is_some()
+                    && ui.button(ph::CORNERS_OUT).on_hover_text("Minimal view (F): full-screen capture").clicked()
+                {
+                    self.toggle_minimal();
                 }
                 ui.separator();
                 self.camera_status(ui);
@@ -829,7 +964,8 @@ impl DragonSlayerApp {
             .inner_margin(Margin::same(4))
             .show(ui, |ui| self.camera_status(ui));
         ui.add_space(6.0);
-        let can_capture = self.camera_ready() && !self.capturing && self.active_row().is_some();
+        let in_capture = self.mode.is_capture();
+        let can_capture = in_capture && self.camera_ready() && !self.capturing && self.active_row().is_some();
         let label = if self.capturing {
             format!("{}  Capturing…", ph::RECORD)
         } else {
@@ -838,7 +974,9 @@ impl DragonSlayerApp {
         let capture = egui::Button::new(RichText::new(label).size(16.0).strong().color(crate::theme::palette().on_accent))
             .fill(crate::theme::palette().accent)
             .min_size(Vec2::new(ui.available_width(), 44.0));
-        if ui.add_enabled(can_capture, capture).on_hover_text("Space").clicked() {
+        let resp = ui.add_enabled(can_capture, capture).on_hover_text("Space");
+        let resp = if in_capture { resp } else { resp.on_disabled_hover_text("Preview mode: switch to Capture (Tab) to take frames") };
+        if resp.clicked() {
             self.capture();
         }
         let has_frames = self.active_row().is_some_and(|r| r.count > 0);
@@ -888,7 +1026,7 @@ impl DragonSlayerApp {
 
         match self.interval {
             None => {
-                let can_start = self.camera_ready() && self.active_row().is_some();
+                let can_start = self.mode.is_capture() && self.camera_ready() && self.active_row().is_some();
                 if ui
                     .add_enabled(
                         can_start,
@@ -986,9 +1124,6 @@ impl DragonSlayerApp {
             ui.add(egui::Slider::new(&mut self.onion_opacity, 0.05..=0.9).text("opacity"));
             ui.checkbox(&mut self.onion_edges, "Outlines only (crisper over live view)");
         });
-        ui.separator();
-        ui.checkbox(&mut self.pip_on, "Picture-in-picture (other view in corner)")
-            .on_hover_text("Shows the last captured frame while on live view, or the live feed while in Preview.");
     }
 
     fn tab_export(&mut self, ui: &mut egui::Ui) {
@@ -1246,7 +1381,7 @@ impl DragonSlayerApp {
 
         // Base image and where onion frames should end (exclusive) depend on viewer state.
         let (base, onion_end, mode_label) = match self.mode {
-            Mode::AddFrames => {
+            Mode::Capture => {
                 let live = self.has_live_view().then(|| self.live.clone()).flatten();
                 match live {
                     Some(t) => (Some(t), n, "LIVE".to_string()),
@@ -1267,7 +1402,7 @@ impl DragonSlayerApp {
                 (base, index, label)
             }
         };
-        let showing_live = self.mode.is_add_frames() && self.live.is_some();
+        let showing_live = self.mode.is_capture() && self.live.is_some();
 
         // Onion frames: the N frames before the base, oldest first.
         let mut onions = Vec::new();
@@ -1298,8 +1433,11 @@ impl DragonSlayerApp {
             return;
         };
 
-        let rect = fit(area.shrink(8.0), base.size_vec2());
-        let uv = Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
+        let (rect, uv) = if self.fill_viewer {
+            (area, cover_uv(area, base.size_vec2()))
+        } else {
+            (fit(area.shrink(8.0), base.size_vec2()), Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)))
+        };
         let painter = ui.painter_at(area);
         painter.image(base.id(), rect, uv, Color32::WHITE);
         // Tint onion frames cyan so the ghost separates visually from the live view.
@@ -1325,8 +1463,8 @@ impl DragonSlayerApp {
         if !self.pip_on {
             return;
         }
-        let main_is_live_feed = self.mode.is_add_frames() && self.live.is_some();
-        let main_frame_idx: Option<usize> = if !self.mode.is_add_frames() {
+        let main_is_live_feed = self.mode.is_capture() && self.live.is_some();
+        let main_frame_idx: Option<usize> = if !self.mode.is_capture() {
             self.mode.preview_index()
         } else if self.live.is_none() {
             // Main fell back to last frame.
@@ -1336,7 +1474,7 @@ impl DragonSlayerApp {
         };
 
         let (pip_tex, pip_label, pip_dot, pip_border, swap_target, want_pip) =
-            if self.mode.is_add_frames() {
+            if self.mode.is_capture() {
                 // Live main → last frame in the PIP (but only if main is a real live
                 // feed; otherwise main is already showing the last frame).
                 let last_idx = self.frames.len().checked_sub(1);
@@ -1361,7 +1499,7 @@ impl DragonSlayerApp {
                     "LIVE".to_string(),
                     crate::theme::palette().live,
                     crate::theme::palette().live,
-                    Some(Mode::AddFrames),
+                    Some(Mode::Capture),
                     show,
                 )
             };
@@ -1450,7 +1588,7 @@ impl DragonSlayerApp {
         for (draw_i, i) in (start..end).enumerate() {
             let x = rect.left() + 4.0 + draw_i as f32 * stride;
             let r = Rect::from_min_size(egui::pos2(x, rect.top() + 5.0), Vec2::new(thumb_w, thumb_h));
-            let is_current = i == cur && !self.mode.is_add_frames();
+            let is_current = i == cur && !self.mode.is_capture();
             painter.rect_filled(r, 2.0, Color32::from_gray(35));
             if let Some(tex) = self.frames[i].jpeg().and_then(|p| self.images.get(p, 160)) {
                 let inner = fit(r.shrink(2.0), tex.size_vec2());
@@ -1476,6 +1614,9 @@ impl DragonSlayerApp {
             if x >= 0.0 {
                 let draw_i = (x / stride).floor() as usize;
                 let target = (start + draw_i).min(n - 1);
+                if self.mode.is_capture() {
+                    log_line(&format!("timeline {} at frame {}", if resp.clicked() { "click" } else { "drag" }, target + 1));
+                }
                 self.mode = Mode::Preview { index: target, playing: false, last_advance: Instant::now() };
             }
         }
@@ -1702,11 +1843,15 @@ fn help_content(ui: &mut egui::Ui, os: HelpOs) {
     p(ui, "6. Click Compile… to render an MP4 or ProRes MOV.");
 
     h(ui, "Keyboard shortcuts");
-    k(ui, "Space", "Capture the next frame into the active scene");
+    k(ui, "Space", "Capture the next frame into the active scene (Capture mode only)");
     k(ui, "Backspace", "Move the last frame to that scene's trash folder (undo delete by \
         moving it back from disk — nothing is destroyed)");
     k(ui, "O", "Toggle onion skin on/off");
-    k(ui, "Tab", "Switch between live view and the last captured frame");
+    k(ui, "Tab", "Switch between Capture and Preview");
+    k(ui, "← / →", "Previous / next frame (Shift jumps 10); Home / End for first / last");
+    k(ui, "P", "Play / pause at the scene's frame rate");
+    k(ui, "F", "Minimal view: full-screen capture with a small floating control bar");
+    k(ui, "Esc", "Leave minimal view, or go back to Capture");
 
     h(ui, "Scene list");
     p(ui, "· Click a scene to make it active. Captures go into the active scene.");
@@ -2009,6 +2154,18 @@ fn overlay(ui: &egui::Ui, rect: Rect, scene: &str, mode: &str) {
 }
 
 /// Largest rect with `size`'s aspect ratio centred in `area`.
+/// UV sub-rectangle that makes an image of `size` cover `area` completely, cropping
+/// whichever edges overhang (centred). The counterpart of `fit`.
+fn cover_uv(area: Rect, size: Vec2) -> Rect {
+    let full = Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
+    if size.x <= 0.0 || size.y <= 0.0 || area.width() <= 0.0 || area.height() <= 0.0 {
+        return full;
+    }
+    let scale = (area.width() / size.x).max(area.height() / size.y);
+    let visible = Vec2::new(area.width() / scale / size.x, area.height() / scale / size.y);
+    Rect::from_center_size(egui::pos2(0.5, 0.5), visible)
+}
+
 fn fit(area: Rect, size: Vec2) -> Rect {
     if size.x <= 0.0 || size.y <= 0.0 {
         return area;
@@ -2136,23 +2293,40 @@ impl eframe::App for DragonSlayerApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         self.images.begin_frame(&ctx);
+        if self.mode.is_capture() != self.logged_mode_is_capture {
+            self.logged_mode_is_capture = self.mode.is_capture();
+            log_line(&format!("mode -> {}", if self.logged_mode_is_capture { "Capture" } else { "Preview" }));
+        }
         self.handle_events(&ctx);
         self.handle_keys();
+        if self.project.is_none() {
+            self.minimal = false;
+        }
+        if self.minimal && !self.mode.is_capture() {
+            self.mode = Mode::Capture;
+        }
+        if self.minimal != self.fullscreen_applied {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(self.minimal));
+            self.fullscreen_applied = self.minimal;
+            log_line(if self.minimal { "minimal view on" } else { "minimal view off" });
+        }
         // Panasonic PTP wedges under a continuous stream of preview requests.
         // Tell the camera worker to keep live view running only while we're in
-        // Add Frames mode; pause it when we're browsing captured frames.
-        let want_live = self.mode.is_add_frames();
+        // Capture mode; pause it when we're browsing captured frames.
+        let want_live = self.mode.is_capture();
         if self.want_live_cached != Some(want_live) {
             let _ = self.session.cmd.send(crate::session::Cmd::SetLiveActive(want_live));
             self.want_live_cached = Some(want_live);
         }
 
-        egui::Panel::top("menubar").show(ui, |ui| self.menu_bar(ui));
-        egui::Panel::top("statusbar").show(ui, |ui| {
-            ui.add_space(2.0);
-            self.status_bar(ui);
-            ui.add_space(2.0);
-        });
+        if !self.minimal {
+            egui::Panel::top("menubar").show(ui, |ui| self.menu_bar(ui));
+            egui::Panel::top("statusbar").show(ui, |ui| {
+                ui.add_space(2.0);
+                self.status_bar(ui);
+                ui.add_space(2.0);
+            });
+        }
 
         if self.project.is_none() {
             egui::CentralPanel::default().show(ui, |ui| self.welcome(ui));
@@ -2162,13 +2336,22 @@ impl eframe::App for DragonSlayerApp {
 
         // Real dockable panels. Users can drag tabs into new groups, resize the
         // splits, or drop a tab back to reset. Layout persists for the session.
-        let mut dock = std::mem::replace(&mut self.dock_state, DockState::new(vec![]));
-        egui::CentralPanel::default().frame(egui::Frame::NONE).show(ui, |ui| {
-            DockArea::new(&mut dock)
-                .style(egui_dock::Style::from_egui(ui.style()))
-                .show_inside(ui, self);
-        });
-        self.dock_state = dock;
+        if self.minimal {
+            egui::CentralPanel::default()
+                .frame(egui::Frame::NONE.fill(Color32::BLACK))
+                .show(ui, |ui| self.viewer(ui));
+            self.minimal_bar(&ctx);
+            // Keep the bar's fade-out animating.
+            ctx.request_repaint_after(Duration::from_millis(100));
+        } else {
+            let mut dock = std::mem::replace(&mut self.dock_state, DockState::new(vec![]));
+            egui::CentralPanel::default().frame(egui::Frame::NONE).show(ui, |ui| {
+                DockArea::new(&mut dock)
+                    .style(egui_dock::Style::from_egui(ui.style()))
+                    .show_inside(ui, self);
+            });
+            self.dock_state = dock;
+        }
 
         self.compile_window(&ctx);
         self.help_window(&ctx);
