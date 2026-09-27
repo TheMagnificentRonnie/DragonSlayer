@@ -44,15 +44,18 @@ impl DragonSlayerApp {
         if self.frames.is_empty() {
             return;
         }
+        // Give the starting frame a moment before advancing, so slow first decodes on macOS
+        // and Windows don't blank the viewer at the very first step.
+        let head_start = Instant::now() + Duration::from_millis(150);
         self.mode = match self.mode {
             Mode::Preview { index, playing: true, .. } => {
                 // Pause on the current frame.
                 Mode::Preview { index, playing: false, last_advance: Instant::now() }
             }
-            Mode::Capture => Mode::Preview { index: 0, playing: true, last_advance: Instant::now() },
+            Mode::Capture => Mode::Preview { index: 0, playing: true, last_advance: head_start },
             Mode::Preview { index, playing: false, .. } => {
                 let start = if index == self.frames.len() - 1 { 0 } else { index };
-                Mode::Preview { index: start, playing: true, last_advance: Instant::now() }
+                Mode::Preview { index: start, playing: true, last_advance: head_start }
             }
         };
         self.playback_tick = Instant::now();

@@ -403,6 +403,8 @@ fn playback_shows_every_frame_without_blanking() {
     let mut r = rig().connected();
     r.capture_frames(20);
     r.press(Key::P);
+    // Wait for the first frame to be on screen before checking that later frames stay on.
+    r.wait_for("first frame decoded", |a| a.preview_hold.is_some());
     let mut seen = std::collections::BTreeSet::new();
     let deadline = Instant::now() + WAIT;
     while r.app().mode.is_playing() && Instant::now() < deadline {
@@ -410,7 +412,7 @@ fn playback_shows_every_frame_without_blanking() {
         if let Some(i) = r.app().mode.preview_index() {
             seen.insert(i);
         }
-        assert!(r.app().preview_hold.is_some() || seen.len() <= 1, "blank viewer during playback");
+        assert!(r.app().preview_hold.is_some(), "viewer blanked during playback");
         std::thread::sleep(Duration::from_millis(10));
     }
     assert!(!r.app().mode.is_playing(), "playback should reach the end");
