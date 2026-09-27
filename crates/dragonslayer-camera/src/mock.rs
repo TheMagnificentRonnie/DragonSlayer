@@ -118,12 +118,15 @@ impl Camera for MockCamera {
         let (stop_t, unplugged) = (stop.clone(), self.unplugged.clone());
         let start = self.shots;
         thread::spawn(move || {
+            // Render at half size when tests are running in parallel: 60+ mock cameras all
+            // encoding 640x360 JPEGs on a 3-core Mac runner crushes the runner.
+            let (w, h) = if cfg!(test) { (320, 180) } else { (640, 360) };
             for seq in 0.. {
                 if stop_t.load(Ordering::Relaxed) || unplugged.load(Ordering::Relaxed) {
                     break;
                 }
                 let t = start as f32 + seq as f32 / 15.0;
-                if !producer.send(LiveFrame { seq, jpeg: render(640, 360, t, 70) }) {
+                if !producer.send(LiveFrame { seq, jpeg: render(w, h, t, 70) }) {
                     break;
                 }
                 thread::sleep(Duration::from_millis(66));

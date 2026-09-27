@@ -104,7 +104,11 @@ jobs:
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
       - name: Test
-        run: cargo test --workspace
+        # App tests each spin up their own mock camera with a live-view thread, so running
+        # them in parallel drowns the runner. Test-threads=1 for the app crate only.
+        run: |
+          cargo test --workspace --exclude dragonslayer-app
+          cargo test -p dragonslayer-app -- --test-threads=1
 
       - name: Build & bundle
         run: bash scripts/package-macos.sh
