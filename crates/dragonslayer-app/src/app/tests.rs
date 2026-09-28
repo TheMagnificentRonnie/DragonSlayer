@@ -938,12 +938,17 @@ fn a_damaged_jpeg_says_so_instead_of_loading_forever() {
         .unwrap();
     });
     r.press(Key::Tab);
-    r.wait_for("decode to fail", |a| {
-        let f = &a.frames[0];
-        a.frame_problem(f, a.onion_width()).is_some()
-    });
-    r.settle(2);
-    assert!(r.has_label("Couldn't read frame 000001"));
+    // Wait for the actual label to appear. Both the width and the cache state can change
+    // between decoded frames as live view starts up, so poll the visible tree directly.
+    let deadline = Instant::now() + WAIT;
+    while Instant::now() < deadline {
+        r.h.step();
+        if r.has_label("Couldn't read frame 000001") {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    panic!("damaged JPEG label never appeared");
 }
 
 /// Renders screens to PNGs for eyeballing: DS_SHOTS=<dir> cargo test -p dragonslayer-app -- --ignored --nocapture screenshots
