@@ -52,6 +52,9 @@ pub struct Settings {
     /// 1/fps duration regardless of the project or per-scene overrides. Left `None`,
     /// each scene uses its own fps (or the project's).
     pub fps_override: Option<u32>,
+    /// Only these frames of the scene (0-based, inclusive), e.g. a marked range. Applies
+    /// when compiling one scene; ignored for the whole project.
+    pub frames: Option<(usize, usize)>,
     /// ffmpeg executable; defaults to `ffmpeg` on PATH.
     pub ffmpeg: Option<PathBuf>,
 }
@@ -76,6 +79,17 @@ pub struct Shot {
 /// `fps_override`, if set, forces every frame's duration to `1 / fps`, ignoring
 /// per-scene rates. Otherwise each scene contributes at its own fps.
 pub fn plan(project: &Project, scene: Option<&str>, fps_override: Option<u32>) -> Result<(Vec<Shot>, Vec<String>)> {
+    plan_range(project, scene, fps_override, None)
+}
+
+/// [`plan`], limited to `frames` (0-based, inclusive, clamped) when compiling one scene.
+pub fn plan_range(
+    project: &Project,
+    scene: Option<&str>,
+    fps_override: Option<u32>,
+    frames: Option<(usize, usize)>,
+) -> Result<(Vec<Shot>, Vec<String>)> {
+    let range = if scene.is_some() { frames } else { None };
     let scenes = match scene {
         Some(key) => vec![project.find_scene(key)?],
         None => project.scenes()?,
@@ -85,7 +99,12 @@ pub fn plan(project: &Project, scene: Option<&str>, fps_override: Option<u32>) -
     for s in &scenes {
         let fps = fps_override.unwrap_or_else(|| project.fps_for(s));
         let seconds = 1.0 / f64::from(fps);
-        let frames = s.frames()?;
+        let mut frames = s.frames()?;
+        if let Some((a, b)) = range {
+            let last = frames.len().saturating_sub(1);
+            let (a, b) = (a.min(b).min(last), a.max(b).min(last));
+            frames = frames.drain(..).skip(a).take(b - a + 1).collect();
+        }
         if frames.is_empty() {
             warnings.push(format!("scene {:?} ({}) is empty; skipped", s.name(), s.id()));
             continue;
@@ -115,14 +134,15 @@ pub fn compile_with_progress(
     settings: &Settings,
     mut on_progress: impl FnMut(f32),
 ) -> Result<Output> {
-    let (shots, warnings) = plan(project, scene, settings.fps_override)?;
+    let (shots, warnings) = plan_range(project, scene, settings.fps_override, settings.frames)?;
     let total_secs: f64 = shots.iter().map(|s| s.seconds).sum();
     let exports = paths::exports_dir(&project.root);
     fs::create_dir_all(&exports).at(&exports)?;
 
-    let label = match scene {
-        Some(key) => project.find_scene(key)?.id().to_owned(),
-        None => "all".into(),
+    let label = match (scene, settings.frames) {
+        (Some(key), Some((a, b))) => format!("{}_f{}-{}", project.find_scene(key)?.id(), a.min(b) + 1, a.max(b) + 1),
+        (Some(key), None) => project.find_scene(key)?.id().to_owned(),
+        (None, _) => "all".into(),
     };
     let stamp = OffsetDateTime::now_local()
         .unwrap_or_else(|_| OffsetDateTime::now_utc())

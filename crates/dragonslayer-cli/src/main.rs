@@ -102,7 +102,24 @@ enum Cmd {
         /// under exports/.
         #[arg(long, conflicts_with = "scene")]
         each: bool,
+        /// Only these frames of the scene, 1-based and inclusive, e.g. `--frames 12-40`.
+        #[arg(long, requires = "scene", value_parser = parse_frames)]
+        frames: Option<(usize, usize)>,
     },
+}
+
+/// `12-40` → (11, 39): 1-based inclusive on the command line, 0-based inside.
+fn parse_frames(s: &str) -> std::result::Result<(usize, usize), String> {
+    let (a, b) = s.split_once('-').ok_or("use FIRST-LAST, e.g. 12-40")?;
+    let a: usize = a.trim().parse().map_err(|_| format!("{a:?} isn't a frame number"))?;
+    let b: usize = b.trim().parse().map_err(|_| format!("{b:?} isn't a frame number"))?;
+    if a == 0 || b == 0 {
+        return Err("frames start at 1".into());
+    }
+    if a > b {
+        return Err(format!("{a} comes after {b}"));
+    }
+    Ok((a - 1, b - 1))
 }
 
 #[derive(Subcommand)]
@@ -208,7 +225,7 @@ fn run(cli: Cli) -> Result<()> {
             let frame = s.delete_last()?;
             println!("Moved frame {frame} of {} to trash ({} left)", s.name(), s.frame_count()?);
         }
-        Cmd::Compile { project, scene, format, resolution, crop, fps, each } => {
+        Cmd::Compile { project, scene, format, resolution, crop, fps, each, frames } => {
             let p = open(&project)?;
             let settings = Settings {
                 format: match format {
@@ -222,6 +239,7 @@ fn run(cli: Cli) -> Result<()> {
                 },
                 framing: if crop { Framing::Crop } else { Framing::Fit },
                 fps_override: fps,
+                frames,
                 ffmpeg: None,
             };
             if each {

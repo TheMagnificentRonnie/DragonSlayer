@@ -621,3 +621,25 @@ fn compile_each_errors_when_nothing_to_compile() {
     assert!(err.to_string().contains("no frames"), "{err}");
     assert!(!tmp.path().join("Film/exports").read_dir().map(|mut d| d.next().is_some()).unwrap_or(false), "no empty folder left behind");
 }
+
+// ----------------------------------------------------------- frame ranges
+
+#[test]
+fn plan_range_compiles_only_the_marked_frames_of_one_scene() {
+    let tmp = tempfile::tempdir().unwrap();
+    let p = project(tmp.path());
+    for _ in 0..5 {
+        capture::capture(&p, None, fake_shot).unwrap();
+    }
+    let ids = |shots: &[Shot]| -> Vec<String> {
+        shots.iter().map(|s| s.path.file_stem().unwrap().to_string_lossy().into_owned()).collect()
+    };
+    let (shots, _) = compile::plan_range(&p, Some("sc010"), None, Some((1, 3))).unwrap();
+    assert_eq!(ids(&shots), ["000002", "000003", "000004"]);
+    // Reversed and past the end are tidied up, not errors.
+    let (shots, _) = compile::plan_range(&p, Some("sc010"), None, Some((9, 3))).unwrap();
+    assert_eq!(ids(&shots), ["000004", "000005"]);
+    // A range means nothing for the whole project: everything is compiled.
+    let (shots, _) = compile::plan_range(&p, None, None, Some((1, 1))).unwrap();
+    assert_eq!(shots.len(), 5);
+}

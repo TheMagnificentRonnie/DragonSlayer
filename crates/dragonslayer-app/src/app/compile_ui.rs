@@ -28,6 +28,9 @@ impl DragonSlayerApp {
         }
         let mut open = true;
         let scenes: Vec<(String, String, usize)> = self.scenes.iter().map(|r| (r.id.clone(), r.name.clone(), r.count)).collect();
+        // Marks live on the active scene, so "only the marked frames" applies to that one.
+        let marked = self.marked_range();
+        let active_id = self.active_row().map(|r| r.id.clone());
         egui::Window::new("Compile video")
             .open(&mut open)
             .collapsible(false)
@@ -68,6 +71,13 @@ impl DragonSlayerApp {
                             d.format = Format::ProRes;
                         }
                         ui.end_row();
+                        let marks_apply = d.scope == Scope::Scene && d.scene.is_some() && d.scene == active_id;
+                        if let (true, Some((a, b))) = (marks_apply, marked) {
+                            ui.label("Frames");
+                            ui.checkbox(&mut d.only_marked, format!("Only the marked frames ({}–{})", a + 1, b + 1))
+                                .on_hover_text("The range set with [ and ] on the timeline");
+                            ui.end_row();
+                        }
                         if d.scope == Scope::Each {
                             ui.label("");
                             ui.label(
@@ -174,6 +184,7 @@ impl DragonSlayerApp {
                             resolution: d.resolution,
                             framing: d.framing,
                             fps_override: d.fps,
+                            frames: marked.filter(|_| d.only_marked && scope == Scope::Scene && scene.is_some() && scene == active_id),
                             ffmpeg: None,
                         };
                         let (tx, rx) = mpsc::channel();

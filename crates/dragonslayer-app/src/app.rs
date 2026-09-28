@@ -107,6 +107,8 @@ struct CompileDialog {
     /// Some(n) = compile at n fps: every scene's per-frame duration becomes 1/n,
     /// so the whole film plays back at that rate regardless of what it was captured at.
     fps: Option<u32>,
+    /// Compile only the marked frames of the active scene.
+    only_marked: bool,
     running: Option<Receiver<Result<CompileDone, String>>>,
     /// 0.0–1.0 as f32 bits, written by the compile thread.
     progress: Arc<AtomicU32>,
@@ -126,6 +128,7 @@ impl Default for CompileDialog {
             resolution: Resolution::Source,
             framing: Framing::Fit,
             fps: None,
+            only_marked: false,
             running: None,
             progress: Arc::new(AtomicU32::new(0)),
             progress_scene: Arc::default(),
@@ -204,6 +207,13 @@ pub struct DragonSlayerApp {
     last_live_at: Option<Instant>,
     /// Last frame shown in Preview, kept on screen while the next one decodes.
     preview_hold: Option<TextureHandle>,
+    /// In and out marks on the active scene's frames (0-based), for looping a range and
+    /// compiling just that range. Cleared when the active scene changes.
+    mark_in: Option<usize>,
+    mark_out: Option<usize>,
+    marks_scene: Option<String>,
+    /// Playback wraps back to the in point (or first frame) instead of stopping (L).
+    loop_on: bool,
     message: Option<(String, bool, Instant)>,
     keys: Vec<Key>,
     _awake: Option<keepawake::KeepAwake>,
@@ -316,6 +326,10 @@ impl DragonSlayerApp {
             project_scan: None,
             last_live_at: None,
             preview_hold: None,
+            mark_in: None,
+            mark_out: None,
+            marks_scene: None,
+            loop_on: false,
             renaming: None,
             drag_from: None,
             compile: CompileDialog::default(),
@@ -405,6 +419,13 @@ impl DragonSlayerApp {
                 self.frames = frames;
                 // A different scene or a deleted frame: don't hold a stale picture.
                 self.preview_hold = None;
+                // Marks belong to one scene.
+                let active = self.project.as_ref().and_then(|p| p.file.active_scene.clone());
+                if active != self.marks_scene {
+                    self.marks_scene = active;
+                    self.mark_in = None;
+                    self.mark_out = None;
+                }
                 // The frame list can shrink (delete last, switching to a shorter scene), so
                 // pull a Preview cursor back in range before anything indexes with it.
                 if let Mode::Preview { index, .. } = &mut self.mode {

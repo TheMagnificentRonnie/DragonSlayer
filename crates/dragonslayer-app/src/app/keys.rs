@@ -16,9 +16,10 @@ impl DragonSlayerApp {
             return;
         }
         // Keys we handle ourselves. Arrow keys and Home/End are navigation.
-        const KEYS: [Key; 12] = [
+        const KEYS: [Key; 15] = [
             Key::Space, Key::Backspace, Key::O, Key::Tab, Key::H, Key::P, Key::F,
             Key::ArrowLeft, Key::ArrowRight, Key::Home, Key::End, Key::Escape,
+            Key::OpenBracket, Key::CloseBracket, Key::L,
         ];
         let mut pressed = Vec::new();
         // With Shift for coarser navigation.
@@ -43,7 +44,9 @@ impl DragonSlayerApp {
                     true
                 }
             }
-            egui::Event::Text(t) => !matches!(t.as_str(), " " | "o" | "O" | "h" | "H" | "p" | "P" | "f" | "F"),
+            egui::Event::Text(t) => {
+                !matches!(t.as_str(), " " | "o" | "O" | "h" | "H" | "p" | "P" | "f" | "F" | "[" | "]" | "l" | "L")
+            }
             _ => true,
         });
         self.keys.extend(pressed);
@@ -63,7 +66,11 @@ impl DragonSlayerApp {
         for key in std::mem::take(&mut self.keys) {
             // Minimal view is capture-only: no Preview navigation.
             if self.minimal
-                && matches!(key, Key::Tab | Key::P | Key::ArrowLeft | Key::ArrowRight | Key::Home | Key::End)
+                && matches!(
+                    key,
+                    Key::Tab | Key::P | Key::ArrowLeft | Key::ArrowRight | Key::Home | Key::End
+                        | Key::OpenBracket | Key::CloseBracket | Key::L
+                )
             {
                 continue;
             }
@@ -79,6 +86,9 @@ impl DragonSlayerApp {
                 Key::Home => self.jump_to(Some(0)),
                 Key::End => self.jump_to_end(),
                 Key::F => self.toggle_minimal(),
+                Key::OpenBracket => self.toggle_mark_in(),
+                Key::CloseBracket => self.toggle_mark_out(),
+                Key::L => self.loop_on = !self.loop_on,
                 Key::Escape if self.minimal => self.minimal = false,
                 Key::Escape => self.mode = Mode::Capture,
                 _ => {}

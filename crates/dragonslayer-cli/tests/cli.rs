@@ -500,3 +500,28 @@ fn interrupted_capture_with_no_files_is_reported_as_abandoned() {
     let o = ok(run(["--mock", "capture", p(&dir), "sc010"]));
     assert!(stdout(&o).contains("frame 000002"), "abandoned number isn't reused: {}", stdout(&o));
 }
+
+#[test]
+fn compile_frames_argument_is_checked() {
+    let tmp = tempfile::tempdir().unwrap();
+    let proj = tmp.path().join("Film");
+    let p = proj.to_str().unwrap();
+    assert!(run(&["--mock", "new", p]).status.success());
+    assert!(run(&["--mock", "capture", p, "Scene 1", "--count", "3"]).status.success());
+    for bad in ["0-2", "3-1", "x-2", "5"] {
+        let out = run(&["compile", p, "sc010", "--frames", bad]);
+        assert!(!out.status.success(), "--frames {bad} should be refused");
+    }
+    // A range needs a scene.
+    assert!(!run(&["compile", p, "--frames", "1-2"]).status.success());
+
+    if std::process::Command::new("ffmpeg").arg("-version").output().is_err() {
+        eprintln!("ffmpeg not on PATH; skipping the compile itself");
+        return;
+    }
+    let out = run(&["compile", p, "sc010", "--frames", "2-3"]);
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    assert!(stdout.contains("(2 frames)"), "{stdout}");
+    assert!(stdout.contains("sc010_f2-3"), "file named after the range: {stdout}");
+}

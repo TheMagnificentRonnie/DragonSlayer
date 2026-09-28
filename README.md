@@ -81,6 +81,7 @@ DragonSlayer is deliberately kept small: it does one job (capture + compile) and
 - **Live view over USB** on any camera libgphoto2 supports live view for
 - **Two modes** — *Capture* (live view, Space captures) and *Preview* (review what you've shot, no capturing); Tab flips between them
 - **Filmstrip timeline** of clickable thumbnails, arrow-key frame stepping and playback at the scene's frame rate
+- **Loop a range** — mark a start and end with `[` and `]`, loop it with `L` while you check a move, and compile just those frames
 - **Picture-in-picture** (optional) — the other view (live or last frame) in the corner; off by default, turn it on in File → Preferences
 - **Camera settings in the app** — aperture, shutter, ISO, white balance and image format (RAW + JPEG) from the Exposure panel, so you never touch the camera between frames
 - **Every shot on the card too** — DragonSlayer sets the camera to also save on its memory card when it connects, so each frame has a backup copy (tethered Canons otherwise skip the card)
@@ -144,7 +145,9 @@ Prefer to build it yourself? See [Build from source](#build-from-source).
 | **Tab** | Switch between Capture and Preview |
 | **← / →** | Previous / next frame (hold to scrub; **Shift** jumps 10) |
 | **Home / End** | First / last frame |
-| **P** | Play / pause at the scene's frame rate |
+| **P** | Play / pause at the scene's frame rate (the marked range, if there is one) |
+| **[ / ]** | Mark the start / end of a range at this frame (again to clear) |
+| **L** | Loop the range (or the whole scene) |
 | **H** | Open the in-app help |
 | **F** | Minimal view — full-screen capture with a floating control bar |
 | **Esc** | Close a modal / leave minimal view / back to Capture |

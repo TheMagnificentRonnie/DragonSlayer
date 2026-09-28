@@ -224,7 +224,9 @@ pub(super) fn help_content(ui: &mut egui::Ui, os: HelpOs) {
     k(ui, "O", "Toggle onion skin on/off");
     k(ui, "Tab", "Switch between Capture and Preview");
     k(ui, "← / →", "Previous / next frame (Shift jumps 10); Home / End for first / last");
-    k(ui, "P", "Play / pause at the scene's frame rate");
+    k(ui, "P", "Play / pause at the scene's frame rate (the marked range, if there is one)");
+    k(ui, "[ / ]", "Mark the start / end of a range at this frame (again to clear)");
+    k(ui, "L", "Loop: keep playing the range (or the whole scene) round and round");
     k(ui, "F", "Minimal view: full-screen capture with a small floating control bar");
     k(ui, "Esc", "Leave minimal view, or go back to Capture");
 

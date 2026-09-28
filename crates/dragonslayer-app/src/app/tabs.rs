@@ -218,6 +218,38 @@ impl DragonSlayerApp {
                         .monospace()
                         .color(crate::theme::palette().text_muted),
                 );
+                ui.separator();
+                if ui
+                    .selectable_label(self.mark_in.is_some(), "[ In")
+                    .on_hover_text("[ — mark the start of a range at this frame (again to clear)")
+                    .clicked()
+                {
+                    self.toggle_mark_in();
+                }
+                if ui
+                    .selectable_label(self.mark_out.is_some(), "Out ]")
+                    .on_hover_text("] — mark the end of a range at this frame (again to clear)")
+                    .clicked()
+                {
+                    self.toggle_mark_out();
+                }
+                if ui
+                    .selectable_label(self.loop_on, format!("{}  Loop", ph::REPEAT))
+                    .on_hover_text("L — keep playing the marked range (or the whole scene) round and round")
+                    .clicked()
+                {
+                    self.loop_on = !self.loop_on;
+                }
+                if let Some((a, b)) = self.marked_range() {
+                    ui.label(
+                        RichText::new(format!("{}–{} ({} frames)", a + 1, b + 1, b - a + 1))
+                            .monospace()
+                            .color(crate::theme::palette().accent),
+                    );
+                    if ui.small_button("Clear").on_hover_text("Remove the in and out marks").clicked() {
+                        self.clear_marks();
+                    }
+                }
             }
         });
         self.timeline(ui);

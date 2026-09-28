@@ -23,6 +23,7 @@ fn settings() -> impl Strategy<Value = Settings> {
             resolution,
             framing,
             fps_override,
+            frames: None,
             ffmpeg: None,
         })
 }

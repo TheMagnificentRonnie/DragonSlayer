@@ -39,15 +39,17 @@ impl DragonSlayerApp {
             .and_then(|p| p.active_scene().ok().map(|s| p.fps_for(&s)))
             .unwrap_or(12) as usize;
         let (ahead, behind) = if playing { (fps.clamp(6, 30), 0) } else { (6, 3) };
-        let wanted = (index + 1..=(index + ahead).min(n - 1)).chain(index.saturating_sub(behind)..index);
+        // While playing, stay inside what's being played (the marked range, or everything).
+        let (lo, hi) = if playing { self.play_bounds() } else { (0, n - 1) };
+        let wanted = (index + 1..=(index + ahead).min(hi)).chain(index.saturating_sub(behind).max(lo)..index);
         for i in wanted {
             if let Some(p) = self.frames[i].jpeg() {
                 self.images.prefetch(p, width);
             }
         }
-        // Playback wraps to the start at the end: have the first frames ready too.
-        if playing && index + ahead >= n {
-            for f in self.frames.iter().take(ahead.min(n)) {
+        // Looping wraps to the in point (or the first frame): have those ready too.
+        if playing && self.loop_on && index + ahead > hi {
+            for f in &self.frames[lo..=(lo + ahead).min(hi)] {
                 if let Some(p) = f.jpeg() {
                     self.images.prefetch(p, width);
                 }
@@ -293,6 +295,7 @@ impl DragonSlayerApp {
         let start = cur.saturating_sub(half).min(n.saturating_sub(visible.min(n)));
         let end = (start + visible).min(n);
 
+        let marked = self.marked_range();
         for (draw_i, i) in (start..end).enumerate() {
             let x = rect.left() + 4.0 + draw_i as f32 * stride;
             let r = Rect::from_min_size(egui::pos2(x, rect.top() + 5.0), Vec2::new(thumb_w, thumb_h));
@@ -303,6 +306,22 @@ impl DragonSlayerApp {
                 painter.image(tex.id(), inner, Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), Color32::WHITE);
             } else if self.frames[i].jpeg().is_none() {
                 painter.text(r.center(), Align2::CENTER_CENTER, "RAW\nonly", FontId::proportional(11.0), crate::theme::palette().warn);
+            }
+            // The marked range: a tinted band across its frames and a bar at each end.
+            if let Some((a, b)) = marked
+                && (a..=b).contains(&i)
+            {
+                let accent = crate::theme::palette().accent;
+                let band = Rect::from_min_max(egui::pos2(r.left() - gap / 2.0, r.top() - 3.0), egui::pos2(r.right() + gap / 2.0, r.top()));
+                painter.rect_filled(band, 0.0, accent);
+                painter.rect_filled(r, 2.0, accent.gamma_multiply(0.18));
+                let bar = |x: f32| Rect::from_min_max(egui::pos2(x - 1.5, r.top() - 3.0), egui::pos2(x + 1.5, r.bottom()));
+                if i == a {
+                    painter.rect_filled(bar(r.left() - gap / 2.0), 0.0, accent);
+                }
+                if i == b {
+                    painter.rect_filled(bar(r.right() + gap / 2.0), 0.0, accent);
+                }
             }
             if is_current {
                 painter.rect_stroke(r, 2.0, Stroke::new(2.0, Color32::from_rgb(80, 170, 250)), egui::epaint::StrokeKind::Outside);

@@ -52,7 +52,7 @@ The essentials that every serious stop-motion tool has. Getting these done takes
 
 - ✅ **Timeline strip** along the bottom of the viewer: thumbnails of every frame in the active scene, clickable to scrub. This is *the* most-used feature in Dragonframe and its absence is the single biggest UX gap.
 - 🚧 **Playback with variable speed** — play the scene at project fps, half speed, quarter speed, in reverse, loop. Space to play/pause, arrow keys to step. (Done: P plays at scene fps. Still to do: half/quarter speed, reverse, loop.)
-- 🎯 **Loop range** — select a start/end frame on the timeline and loop just that segment.
+- ✅ **Loop range** — `[` and `]` mark a range on the timeline, `L` loops it (or the whole scene), and Compile can do just the marked frames (`--frames 12-40` on the CLI). *(0.4.0)*
 - ✅ **Frame-by-frame scrub** with left/right arrows, holding for autoscrub.
 - 🎯 **Playback while capturing** — one thread captures, another loops last N frames for review between shots.
 

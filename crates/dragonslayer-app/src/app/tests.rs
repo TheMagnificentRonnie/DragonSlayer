@@ -1043,3 +1043,120 @@ fn diagnosis_warns_when_shots_skip_the_card() {
     r.settle(3);
     assert!(r.has_label("Shots go only to the computer"));
 }
+
+// ------------------------------------------------------------ loop range
+
+#[test]
+fn brackets_set_and_clear_marks_at_the_current_frame() {
+    let mut r = rig().connected();
+    r.capture_frames(5);
+    r.press(Key::Home);
+    r.press(Key::ArrowRight);
+    r.press(Key::OpenBracket);
+    assert_eq!(r.app().mark_in, Some(1));
+    r.press(Key::ArrowRight);
+    r.press(Key::ArrowRight);
+    r.press(Key::CloseBracket);
+    assert_eq!(r.app().marked_range(), Some((1, 3)));
+    // Same frame again clears that mark; one mark alone runs to the end.
+    r.press(Key::CloseBracket);
+    assert_eq!(r.app().mark_out, None);
+    assert_eq!(r.app().marked_range(), Some((1, 4)));
+}
+
+#[test]
+fn marks_belong_to_a_scene_and_clear_when_it_changes() {
+    let mut r = rig().connected();
+    r.capture_frames(3);
+    r.press(Key::Home);
+    r.press(Key::OpenBracket);
+    assert!(r.app().marked_range().is_some());
+    r.click("Add scene");
+    assert_eq!(r.app().marked_range(), None);
+}
+
+#[test]
+fn playback_plays_only_the_marked_range_then_stops_on_the_out_point() {
+    let mut r = rig().connected();
+    r.capture_frames(8);
+    r.app_mut().mark_in = Some(2);
+    r.app_mut().mark_out = Some(4);
+    r.press(Key::P);
+    assert_eq!(r.app().mode.preview_index(), Some(2), "starts at the in point");
+    let mut seen = std::collections::BTreeSet::new();
+    let deadline = Instant::now() + WAIT;
+    while r.app().mode.is_playing() && Instant::now() < deadline {
+        r.h.step();
+        seen.extend(r.app().mode.preview_index());
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert_eq!(r.app().mode.preview_index(), Some(4), "stops on the out point");
+    assert!(seen.iter().all(|i| (2..=4).contains(i)), "left the range: {seen:?}");
+}
+
+#[test]
+fn loop_keeps_playing_the_range_round_and_round() {
+    let mut r = rig().connected();
+    r.capture_frames(6);
+    r.app_mut().mark_in = Some(1);
+    r.app_mut().mark_out = Some(3);
+    r.press(Key::L);
+    assert!(r.app().loop_on);
+    r.press(Key::P);
+    // Watch it pass the out point at least twice without stopping.
+    let mut wraps = 0;
+    let mut last = r.app().mode.preview_index().unwrap();
+    let deadline = Instant::now() + WAIT;
+    while wraps < 2 && Instant::now() < deadline {
+        r.h.step();
+        let now = r.app().mode.preview_index().unwrap();
+        assert!((1..=3).contains(&now), "left the loop: {now}");
+        assert!(r.app().mode.is_playing(), "a loop doesn't stop by itself");
+        if now < last {
+            wraps += 1;
+        }
+        last = now;
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert_eq!(wraps, 2);
+    r.press(Key::P);
+    assert!(!r.app().mode.is_playing());
+}
+
+#[test]
+fn loop_without_marks_loops_the_whole_scene() {
+    let mut r = rig().connected();
+    r.capture_frames(3);
+    r.app_mut().loop_on = true;
+    r.press(Key::P);
+    let deadline = Instant::now() + WAIT;
+    let mut wrapped = false;
+    let mut last = 0;
+    while !wrapped && Instant::now() < deadline {
+        r.h.step();
+        let now = r.app().mode.preview_index().unwrap();
+        wrapped = now < last;
+        last = now;
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(wrapped && r.app().mode.is_playing());
+}
+
+#[test]
+fn compile_dialog_can_compile_just_the_marked_frames() {
+    if std::process::Command::new("ffmpeg").arg("-version").output().is_err() {
+        eprintln!("ffmpeg not on PATH; skipping");
+        return;
+    }
+    let mut r = rig().connected();
+    r.capture_frames(5);
+    r.app_mut().mark_in = Some(1);
+    r.app_mut().mark_out = Some(2);
+    r.app_mut().open_compile(Some(Scope::Scene));
+    r.settle(2);
+    assert!(r.has_label("Only the marked frames (2–3)"));
+    r.app_mut().compile.only_marked = true;
+    r.click("Compile");
+    r.wait_for("compile finished", |a| a.compile.result.is_some());
+    assert!(r.has_label("Saved 2 frames"), "the marked range only");
+}
