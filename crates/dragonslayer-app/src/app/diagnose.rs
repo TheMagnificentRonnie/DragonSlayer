@@ -184,6 +184,28 @@ impl DragonSlayerApp {
                             "",
                         );
                     }
+                    let target = self
+                        .camera_settings
+                        .iter()
+                        .find(|s| s.kind == dragonslayer_camera::SettingKind::CaptureTarget);
+                    match target {
+                        Some(t) if t.value.to_ascii_lowercase().contains("card") => {
+                            row(ui, V::Ok, "Every shot is also saved on the camera's memory card", "")
+                        }
+                        Some(t) => row(
+                            ui,
+                            V::Warn,
+                            &format!("Shots go only to the computer (camera set to \"{}\")", t.value),
+                            "Set \"Save photos to\" to the memory card in the Exposure panel for a backup copy \
+                             of every frame. Check there's a card in the camera.",
+                        ),
+                        None => row(
+                            ui,
+                            V::Info,
+                            "This camera doesn't say where it stores shots",
+                            "Check the camera's card after a few frames to see whether it keeps a copy.",
+                        ),
+                    }
                     let live_recent = self.last_live_at.is_some_and(|t| t.elapsed() < Duration::from_secs(3));
                     if !caps.live_view {
                         row(ui, V::Info, "This model has no live view over USB", "Onion skin shows over the last frame instead.");

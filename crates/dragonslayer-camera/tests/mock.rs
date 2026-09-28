@@ -352,3 +352,12 @@ fn image_format_setting_decides_which_files_a_shot_produces() {
     std::fs::create_dir(&d3).unwrap();
     assert_eq!(kinds(&mut cam, &d3), [FileKind::Jpeg]);
 }
+
+#[test]
+fn card_choice_finds_the_memory_card_option() {
+    use dragonslayer_camera::card_choice;
+    let c = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+    assert_eq!(card_choice(&c(&["Internal RAM", "Memory card"])), Some("Memory card"));
+    assert_eq!(card_choice(&c(&["SDRAM", "Card"])), Some("Card"));
+    assert_eq!(card_choice(&c(&["Internal RAM"])), None);
+}

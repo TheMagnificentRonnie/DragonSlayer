@@ -83,6 +83,7 @@ DragonSlayer is deliberately kept small: it does one job (capture + compile) and
 - **Filmstrip timeline** of clickable thumbnails, arrow-key frame stepping and playback at the scene's frame rate
 - **Picture-in-picture** (optional) — the other view (live or last frame) in the corner; off by default, turn it on in File → Preferences
 - **Camera settings in the app** — aperture, shutter, ISO, white balance and image format (RAW + JPEG) from the Exposure panel, so you never touch the camera between frames
+- **Every shot on the card too** — DragonSlayer sets the camera to also save on its memory card when it connects, so each frame has a backup copy (tethered Canons otherwise skip the card)
 - **Interval capture** — N frames, S seconds apart, for time-lapses; stops cleanly if the camera drops
 - **Dockable panels** — Scenes, Viewer, Timeline, Camera, Exposure, Onion Skin and Export; drag any tab to rearrange
 - **Three themes** — Dark Teal, Dark Amber, Light (Preferences → Theme)

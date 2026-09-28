@@ -248,6 +248,9 @@ pub(super) fn help_content(ui: &mut egui::Ui, os: HelpOs) {
         Put the mode dial on M: in auto modes the camera locks some settings (they show \
         greyed out) and changes exposure between frames, which makes the film flicker. \
         Set Image format to RAW + JPEG there to keep both files.");
+    p(ui, "Save photos to: DragonSlayer sets this to the memory card when the camera connects, \
+        so every frame also has a copy on the card (tethered Canons otherwise skip the card). \
+        Keep a card in the camera. Tools → Import images… can rebuild a scene from it.");
 
     h(ui, "Interval capture");
     p(ui, "In the Camera panel: capture N frames automatically, a set number of seconds \

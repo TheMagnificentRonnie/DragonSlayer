@@ -179,6 +179,7 @@ impl Worker {
                 }
                 self.status(Status::Connected { name: device.display_name(), caps });
                 self.camera = Some((device, cam));
+                self.save_to_card();
                 self.send_settings();
                 self.start_live();
             }
@@ -235,6 +236,24 @@ impl Worker {
 
     /// Read once on connect and after changes only: polling would add PTP traffic,
     /// which is what wedges Panasonic bodies.
+    /// Tethered cameras (Canon especially) default to keeping shots only in their own
+    /// memory, so nothing lands on the card. Switch to the card when the camera offers it:
+    /// every frame then has a second copy, which is what the card-rescue import relies on.
+    fn save_to_card(&mut self) {
+        let Some((_, cam)) = &mut self.camera else { return };
+        let Ok(settings) = cam.settings() else { return };
+        let Some(target) = settings.iter().find(|s| s.kind == SettingKind::CaptureTarget) else { return };
+        if target.readonly || target.value.to_ascii_lowercase().contains("card") {
+            return;
+        }
+        if let Some(card) = dragonslayer_camera::card_choice(&target.choices).map(str::to_owned)
+            && let Err(e) = cam.set_setting(SettingKind::CaptureTarget, &card)
+        {
+            let msg = format!("Couldn't switch the camera to save on its memory card: {}", explain(&e));
+            self.send(Event::SettingFailed(msg));
+        }
+    }
+
     fn send_settings(&mut self) {
         let Some((_, cam)) = &mut self.camera else { return };
         match cam.settings() {

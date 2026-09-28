@@ -1011,3 +1011,35 @@ fn screenshot_welcome() {
     img.save(&p).unwrap();
     println!("wrote {}", p.display());
 }
+
+// --------------------------------------------------------------- save to card
+
+#[test]
+fn camera_is_switched_to_save_on_its_card_when_it_connects() {
+    // The mock starts on "Internal RAM", like a tethered Canon.
+    let mut r = rig().connected();
+    r.wait_for("capture target on the card", |a| {
+        a.camera_settings
+            .iter()
+            .any(|s| s.kind == dragonslayer_camera::SettingKind::CaptureTarget && s.value == "Memory card")
+    });
+    r.app_mut().diagnose_open = true;
+    r.settle(3);
+    assert!(r.has_label("Every shot is also saved on the camera's memory card"));
+}
+
+#[test]
+fn diagnosis_warns_when_shots_skip_the_card() {
+    let mut r = rig().connected();
+    r.wait_for("on the card", |a| {
+        a.camera_settings.iter().any(|s| s.kind == dragonslayer_camera::SettingKind::CaptureTarget && s.value == "Memory card")
+    });
+    // The user switches it back by hand in the Exposure panel.
+    let _ = r.app().session.cmd.send(Cmd::SetSetting(dragonslayer_camera::SettingKind::CaptureTarget, "Internal RAM".into()));
+    r.wait_for("back to RAM", |a| {
+        a.camera_settings.iter().any(|s| s.kind == dragonslayer_camera::SettingKind::CaptureTarget && s.value == "Internal RAM")
+    });
+    r.app_mut().diagnose_open = true;
+    r.settle(3);
+    assert!(r.has_label("Shots go only to the computer"));
+}

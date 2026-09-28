@@ -231,6 +231,9 @@ Windows driver.
       the dial to **P**/**A**: some settings become read-only (greyed out) rather than erroring.
       Change settings ~20 times with live view running: no wedge. Record any setting that
       is missing for this model and the name `gphoto2 --list-config` uses for it.
+- [ ] **6.10c Save to card.** Card in the camera. Connect, shoot 3 frames. Exposure shows
+      *Save photos to: Memory card*; Diagnose camera says every shot is also on the card; the
+      camera's card (view on the camera) has the 3 shots.
 - [ ] **6.10b Camera diagnosis.** With the camera working, **Help → Diagnose camera…**
       shows all green: driver WinUSB, plugged straight into the computer, camera answers,
       live view frames arriving. `DragonSlayer-CLI.cmd diagnose` (app closed) prints the same
