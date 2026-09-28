@@ -140,6 +140,11 @@ enum SceneCmd {
     Delete { project: PathBuf, scene: String },
     /// Set a scene's frame rate, or `project` to use the project rate.
     Fps { project: PathBuf, scene: String, fps: String },
+    /// Start a new take of a scene (it becomes active: captures go into it).
+    Take { project: PathBuf, scene: String },
+    /// Choose which take of a scene the film uses: a take number (1 is the scene itself),
+    /// id or name.
+    Use { project: PathBuf, scene: String, take: String },
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -289,8 +294,40 @@ fn scene(action: SceneCmd) -> Result<()> {
             for (i, s) in p.scenes()?.iter().enumerate() {
                 let active = if p.file.active_scene.as_deref() == Some(s.id()) { "*" } else { " " };
                 let fps = s.file.fps.map(|f| format!(", {f} fps")).unwrap_or_default();
-                println!("{active} {:>2}. {}  {}  ({} frames{fps})", i + 1, s.id(), s.name(), s.frame_count()?);
+                let takes = p.takes_of(s.id())?;
+                let star = |id: &str| if !takes.is_empty() && p.chosen_take(s.id()) == id { "  ★ in film" } else { "" };
+                println!("{active} {:>2}. {}  {}  ({} frames{fps}){}", i + 1, s.id(), s.name(), s.frame_count()?, star(s.id()));
+                for (n, t) in takes.iter().enumerate() {
+                    let active = if p.file.active_scene.as_deref() == Some(t.id()) { "*" } else { " " };
+                    println!("{active}       take {}  {}  ({} frames){}", n + 2, t.id(), t.frame_count()?, star(t.id()));
+                }
             }
+        }
+        SceneCmd::Take { project, scene } => {
+            let mut p = open(&project)?;
+            let id = p.find_scene(&scene)?.id().to_owned();
+            let t = p.add_take(&id)?;
+            println!("Started {} {:?} (active: captures go into it)", t.id(), t.name());
+        }
+        SceneCmd::Use { project, scene, take } => {
+            let mut p = open(&project)?;
+            let found = p.find_scene(&scene)?;
+            let owner = p.take_owner(found.id()).unwrap_or(found.id()).to_owned();
+            let chosen = match take.parse::<usize>() {
+                Ok(1) => None,
+                Ok(n) => Some(
+                    p.takes_of(&owner)?
+                        .get(n.wrapping_sub(2))
+                        .map(|t| t.id().to_owned())
+                        .with_context(|| format!("{owner} has no take {n}"))?,
+                ),
+                Err(_) => {
+                    let t = p.find_scene(&take)?.id().to_owned();
+                    (t != owner).then_some(t)
+                }
+            };
+            p.choose_take(&owner, chosen.as_deref())?;
+            println!("{owner}: the film uses {}", chosen.as_deref().unwrap_or("take 1"));
         }
         SceneCmd::Add { project, name, after } => {
             let mut p = open(&project)?;

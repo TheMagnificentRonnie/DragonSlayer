@@ -525,3 +525,25 @@ fn compile_frames_argument_is_checked() {
     assert!(stdout.contains("(2 frames)"), "{stdout}");
     assert!(stdout.contains("sc010_f2-3"), "file named after the range: {stdout}");
 }
+
+#[test]
+fn takes_from_the_command_line() {
+    let tmp = tempfile::tempdir().unwrap();
+    let proj = tmp.path().join("Film");
+    let p = proj.to_str().unwrap();
+    assert!(run(["--mock", "new", p]).status.success());
+    assert!(run(["--mock", "capture", p, "Scene 1", "--count", "1"]).status.success());
+    let out = run(["scene", "take", p, "Scene 1"]);
+    assert!(out.status.success());
+    assert!(String::from_utf8_lossy(&out.stdout).contains("sc010t2"));
+    assert!(run(["--mock", "capture", p, "sc010t2", "--count", "2"]).status.success());
+    assert!(run(["scene", "use", p, "sc010", "2"]).status.success());
+    let list = String::from_utf8_lossy(&run(["scene", "list", p]).stdout).into_owned();
+    assert!(list.contains("take 2  sc010t2  (2 frames)  ★ in film"), "{list}");
+    // Back to the original, by number.
+    assert!(run(["scene", "use", p, "sc010", "1"]).status.success());
+    let list = String::from_utf8_lossy(&run(["scene", "list", p]).stdout).into_owned();
+    assert!(list.contains("Scene 1  (1 frames)  ★ in film"), "{list}");
+    // Nonsense is refused.
+    assert!(!run(["scene", "use", p, "sc010", "9"]).status.success());
+}

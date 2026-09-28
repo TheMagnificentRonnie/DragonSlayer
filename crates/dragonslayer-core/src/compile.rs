@@ -92,7 +92,8 @@ pub fn plan_range(
     let range = if scene.is_some() { frames } else { None };
     let scenes = match scene {
         Some(key) => vec![project.find_scene(key)?],
-        None => project.scenes()?,
+        // The film: each scene's chosen take.
+        None => project.film_scenes()?,
     };
     let mut shots = Vec::new();
     let mut warnings = Vec::new();
@@ -188,14 +189,17 @@ pub fn compile_each(
 ) -> Result<EachOutput> {
     let mut plans = Vec::new();
     let mut warnings = Vec::new();
-    for s in project.scenes()? {
+    for id in &project.file.scenes {
+        // Named after the scene, made from the take chosen for the film.
+        let named = project.scene(id)?;
+        let s = project.scene(project.chosen_take(id))?;
         if s.frame_count()? == 0 {
             warnings.push(format!("scene {:?} ({}) is empty; skipped", s.name(), s.id()));
             continue;
         }
         let (shots, w) = plan(project, Some(s.id()), settings.fps_override)?;
         warnings.extend(w);
-        plans.push((s, shots));
+        plans.push((named.name().to_owned(), s, shots));
     }
     if plans.is_empty() {
         return Err(Error::NothingToCompile("the project has no frames".into()));
@@ -211,20 +215,20 @@ pub fn compile_each(
 
     let ffmpeg = settings.ffmpeg.clone().unwrap_or_else(|| "ffmpeg".into());
     let secs = |shots: &[Shot]| shots.iter().map(|s| s.seconds).sum::<f64>();
-    let total: f64 = plans.iter().map(|(_, shots)| secs(shots)).sum();
+    let total: f64 = plans.iter().map(|(_, _, shots)| secs(shots)).sum();
     let width = if plans.len() >= 100 { 3 } else { 2 };
     let mut done = 0.0;
     let mut files = Vec::new();
-    for (i, (s, shots)) in plans.iter().enumerate() {
-        let name = format!("{:0width$} {}.{}", i + 1, file_name_safe(s.name()), settings.format.ext());
+    for (i, (scene_name, s, shots)) in plans.iter().enumerate() {
+        let name = format!("{:0width$} {}.{}", i + 1, file_name_safe(scene_name), settings.format.ext());
         let out = paths::unique_path(&dir, &name);
         let list = dir.join(format!(".{}.concat.txt", out.file_stem().unwrap().to_string_lossy()));
         atomic::write_atomic(&list, concat_list(shots).as_bytes())?;
         let fps = settings.fps_override.unwrap_or_else(|| project.fps_for(s));
         let scene_secs = secs(shots);
-        on_progress((done / total) as f32, s.name());
+        on_progress((done / total) as f32, scene_name);
         let result = run_ffmpeg(&ffmpeg, ffmpeg_args(&list, &out, fps, settings), scene_secs, &mut |f| {
-            on_progress(((done + f64::from(f) * scene_secs) / total) as f32, s.name());
+            on_progress(((done + f64::from(f) * scene_secs) / total) as f32, scene_name);
         });
         let _ = fs::remove_file(&list);
         result?;

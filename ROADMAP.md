@@ -58,7 +58,7 @@ The essentials that every serious stop-motion tool has. Getting these done takes
 
 ### Takes and versions (S)
 
-- 🎯 **Multiple takes per shot** — capture into a "take" that lives alongside the main sequence. When a movement doesn't work, start a new take instead of deleting. Switch which take is active for compile.
+- ✅ **Multiple takes per shot** — New take shoots a scene again without deleting the first attempt; takes sit under their scene, and ★ marks the one the film and Compile use (`scene take` / `scene use` on the CLI). *(0.4.0)*
 
 ### Onion skin polish (S-M)
 

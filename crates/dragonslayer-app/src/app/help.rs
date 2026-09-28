@@ -233,6 +233,10 @@ pub(super) fn help_content(ui: &mut egui::Ui, os: HelpOs) {
     h(ui, "Scene list");
     p(ui, "· Click a scene to make it active. Captures go into the active scene.");
     p(ui, "· Double-click to rename. Enter saves, Esc cancels.");
+    p(ui, "· Takes: right-click a scene → New take (or Scene → New take of this scene) to shoot \
+        it again without losing what you have. The new take becomes active, so Space shoots into \
+        it. Takes are listed under their scene; right-click one → Use this take in the film. \
+        The ★ marks the take the film and Compile use.");
     p(ui, "· Drag a scene up or down to reorder it in the film.");
     p(ui, "· Right-click for frame rate override and delete. Deleted scenes go to the project \
         trash folder — recover them by moving them back.");

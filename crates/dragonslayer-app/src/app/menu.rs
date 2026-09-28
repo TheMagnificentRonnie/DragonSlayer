@@ -112,9 +112,19 @@ impl DragonSlayerApp {
             ui.menu_button(format!("{}  Scene", ph::FILM_STRIP), |ui| {
                 let can = self.project.is_some();
                 if ui.add_enabled(can, egui::Button::new(format!("{}  Add scene", ph::PLUS))).clicked() {
-                    let n = self.scenes.len() + 1;
+                    let n = self.scene_count() + 1;
                     let after = self.active_row().map(|r| r.id.clone());
                     self.edit(|p| p.add_scene(&format!("Scene {n}"), after.as_deref()).map(|_| ()));
+                    ui.close();
+                }
+                if ui
+                    .add_enabled(self.active_row().is_some(), egui::Button::new(format!("{}  New take of this scene", ph::COPY_SIMPLE)))
+                    .on_hover_text("Shoot the scene again without losing what you have; right-click a take to use it in the film")
+                    .clicked()
+                {
+                    if let Some(id) = self.active_row().map(|r| r.id.clone()) {
+                        self.new_take(&id);
+                    }
                     ui.close();
                 }
                 if ui.add_enabled(self.active_row().is_some(), egui::Button::new(format!("{}  Rename active scene", ph::PENCIL_SIMPLE))).clicked() {

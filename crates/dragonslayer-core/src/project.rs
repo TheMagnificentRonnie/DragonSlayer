@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -22,6 +22,19 @@ pub struct ProjectFile {
     pub fps: u32,
     pub scenes: Vec<String>,
     pub active_scene: Option<String>,
+    /// Extra takes, by scene id. Take 1 is always the scene itself.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub takes: BTreeMap<String, Takes>,
+}
+
+/// The extra takes of one scene and which take the film uses.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Takes {
+    /// Take folders in order: take 2, take 3, ...
+    pub extra: Vec<String>,
+    /// The take in the film. `None` is take 1, the scene itself.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chosen: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -61,6 +74,7 @@ impl Project {
                 fps,
                 scenes: Vec::new(),
                 active_scene: None,
+                takes: BTreeMap::new(),
             },
         };
         project.add_scene("Scene 1", None)?;
@@ -89,11 +103,99 @@ impl Project {
         &self.file.name
     }
 
+    /// A scene or a take of one, by id.
     pub fn scene(&self, id: &str) -> Result<Scene> {
-        if !self.file.scenes.iter().any(|s| s == id) {
+        if !self.file.scenes.iter().any(|s| s == id) && self.take_owner(id).is_none() {
             return Err(Error::SceneNotFound(id.into()));
         }
         Scene::load(paths::scene_dir(&self.root, id))
+    }
+
+    /// The scene a take belongs to, if `id` is a take.
+    pub fn take_owner(&self, id: &str) -> Option<&str> {
+        self.file.takes.iter().find(|(_, t)| t.extra.iter().any(|x| x == id)).map(|(k, _)| k.as_str())
+    }
+
+    /// 1 for a scene itself, 2, 3, ... for its extra takes.
+    pub fn take_number(&self, id: &str) -> Option<usize> {
+        if self.file.scenes.iter().any(|s| s == id) {
+            return Some(1);
+        }
+        let owner = self.take_owner(id)?;
+        self.file.takes[owner].extra.iter().position(|x| x == id).map(|i| i + 2)
+    }
+
+    /// Extra takes of `scene_id` (not including the scene itself), in order.
+    pub fn takes_of(&self, scene_id: &str) -> Result<Vec<Scene>> {
+        match self.file.takes.get(scene_id) {
+            Some(t) => t.extra.iter().map(|id| self.scene(id)).collect(),
+            None => Ok(Vec::new()),
+        }
+    }
+
+    /// The take of `scene_id` the film uses: the chosen one, or the scene itself.
+    pub fn chosen_take<'a>(&'a self, scene_id: &'a str) -> &'a str {
+        self.file.takes.get(scene_id).and_then(|t| t.chosen.as_deref()).unwrap_or(scene_id)
+    }
+
+    /// What the film is made of: each scene's chosen take, in scene order.
+    pub fn film_scenes(&self) -> Result<Vec<Scene>> {
+        self.file.scenes.iter().map(|id| self.scene(self.chosen_take(id))).collect()
+    }
+
+    /// Every scene and every take (recovery, lookups).
+    pub fn all_scenes(&self) -> Result<Vec<Scene>> {
+        let mut out = Vec::new();
+        for id in &self.file.scenes {
+            out.push(self.scene(id)?);
+            out.extend(self.takes_of(id)?);
+        }
+        Ok(out)
+    }
+
+    /// Starts a new, empty take of the scene (or of the scene a take belongs to) and makes
+    /// it active, so the next captures go into it.
+    pub fn add_take(&mut self, id: &str) -> Result<Scene> {
+        let owner = match self.take_owner(id) {
+            Some(o) => o.to_owned(),
+            None => self.scene(id)?.id().to_owned(),
+        };
+        let base = self.scene(&owner)?;
+        let extra = self.file.takes.get(&owner).map_or(0, |t| t.extra.len());
+        let mut n = extra + 2;
+        let trash = paths::project_trash(&self.root);
+        let take_id = loop {
+            let candidate = format!("{owner}t{n}");
+            if !paths::scene_dir(&self.root, &candidate).exists() && !trash.join(&candidate).exists() {
+                break candidate;
+            }
+            n += 1;
+        };
+        let scene = Scene::create(
+            paths::scene_dir(&self.root, &take_id),
+            SceneFile { id: take_id.clone(), name: format!("{} · take {}", base.name(), extra + 2), fps: base.file.fps },
+        )?;
+        self.file.takes.entry(owner).or_default().extra.push(take_id.clone());
+        self.file.active_scene = Some(take_id);
+        self.save()?;
+        Ok(scene)
+    }
+
+    /// Picks which take of `scene_id` goes in the film: a take id, or `None` for take 1.
+    pub fn choose_take(&mut self, scene_id: &str, take: Option<&str>) -> Result<()> {
+        self.index_of(scene_id)?;
+        if let Some(t) = take
+            && t != scene_id
+            && self.take_owner(t) != Some(scene_id)
+        {
+            return Err(Error::SceneNotFound(t.into()));
+        }
+        let take = take.filter(|t| *t != scene_id).map(str::to_owned);
+        if take.is_none() && !self.file.takes.contains_key(scene_id) {
+            return Ok(());
+        }
+        self.file.takes.entry(scene_id.to_owned()).or_default().chosen = take;
+        self.save()
     }
 
     /// Scenes in project order.
@@ -106,12 +208,12 @@ impl Project {
         self.scene(id)
     }
 
-    /// Resolves a scene by id, or by display name if no id matches.
+    /// Resolves a scene or take by id, or by display name if no id matches.
     pub fn find_scene(&self, key: &str) -> Result<Scene> {
-        if self.file.scenes.iter().any(|s| s == key) {
+        if self.file.scenes.iter().any(|s| s == key) || self.take_owner(key).is_some() {
             return self.scene(key);
         }
-        self.scenes()?
+        self.all_scenes()?
             .into_iter()
             .find(|s| s.name() == key)
             .ok_or_else(|| Error::SceneNotFound(key.into()))
@@ -123,6 +225,9 @@ impl Project {
 
     /// Adds a scene after `after` (or at the end) and makes it active.
     pub fn add_scene(&mut self, name: &str, after: Option<&str>) -> Result<Scene> {
+        // After a take means after the scene it belongs to.
+        let owner = after.and_then(|a| self.take_owner(a)).map(str::to_owned);
+        let after = owner.as_deref().or(after);
         let pos = match after {
             Some(a) => {
                 self.index_of(a)? + 1
@@ -161,24 +266,56 @@ impl Project {
         self.save()
     }
 
-    /// Moves the scene folder into the project `trash/`.
+    /// Moves the scene folder (and its takes) into the project `trash/`. Given a take,
+    /// removes just that take.
     pub fn delete_scene(&mut self, id: &str) -> Result<()> {
+        if let Some(owner) = self.take_owner(id).map(str::to_owned) {
+            return self.delete_take(&owner, id);
+        }
         let idx = self.index_of(id)?;
-        let src = paths::scene_dir(&self.root, id);
-        let trash = paths::project_trash(&self.root);
-        fs::create_dir_all(&trash).at(&trash)?;
-        let dest = paths::unique_path(&trash, id);
-        fs::rename(&src, &dest).at(&src)?;
+        let takes = self.file.takes.remove(id).map(|t| t.extra).unwrap_or_default();
+        for t in takes.iter().map(String::as_str).chain(std::iter::once(id)) {
+            self.to_trash(t)?;
+        }
         self.file.scenes.remove(idx);
-        if self.file.active_scene.as_deref() == Some(id) {
+        let active_gone = self.file.active_scene.as_deref().is_some_and(|a| a == id || takes.iter().any(|t| t == a));
+        if active_gone {
             let next = idx.min(self.file.scenes.len().saturating_sub(1));
             self.file.active_scene = self.file.scenes.get(next).cloned();
         }
         self.save()
     }
 
+    fn delete_take(&mut self, owner: &str, take: &str) -> Result<()> {
+        self.to_trash(take)?;
+        if let Some(t) = self.file.takes.get_mut(owner) {
+            t.extra.retain(|x| x != take);
+            if t.chosen.as_deref() == Some(take) {
+                t.chosen = None;
+            }
+            if t.extra.is_empty() {
+                self.file.takes.remove(owner);
+            }
+        }
+        if self.file.active_scene.as_deref() == Some(take) {
+            self.file.active_scene = Some(owner.to_owned());
+        }
+        self.save()
+    }
+
+    fn to_trash(&self, id: &str) -> Result<()> {
+        let src = paths::scene_dir(&self.root, id);
+        let trash = paths::project_trash(&self.root);
+        fs::create_dir_all(&trash).at(&trash)?;
+        let dest = paths::unique_path(&trash, id);
+        fs::rename(&src, &dest).at(&src)
+    }
+
+    /// Makes a scene or a take the one captures go into.
     pub fn set_active(&mut self, id: &str) -> Result<()> {
-        self.index_of(id)?;
+        if self.take_owner(id).is_none() {
+            self.index_of(id)?;
+        }
         self.file.active_scene = Some(id.into());
         self.save()
     }
@@ -186,7 +323,7 @@ impl Project {
     /// Commits or abandons captures left pending by a crash. Run on launch.
     pub fn recover(&self) -> Result<RecoveryReport> {
         let mut report = RecoveryReport::default();
-        for scene in self.scenes()? {
+        for scene in self.all_scenes()? {
             let pending = scene.pending()?;
             if pending.is_empty() {
                 continue;

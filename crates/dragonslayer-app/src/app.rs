@@ -77,6 +77,14 @@ struct SceneRow {
     fps: Option<u32>,
     count: usize,
     last_jpeg: Option<PathBuf>,
+    /// 1 for the scene itself, 2, 3, ... for its extra takes.
+    take: usize,
+    /// For an extra take: the scene it belongs to.
+    owner: Option<String>,
+    /// This row is the take the film uses for its scene.
+    in_film: bool,
+    /// For a scene row: how many takes it has, counting itself.
+    takes: usize,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -398,14 +406,26 @@ impl DragonSlayerApp {
         let result = (|| {
             let mut rows = Vec::new();
             for s in p.scenes()? {
-                let frames = s.frames()?;
-                rows.push(SceneRow {
-                    id: s.id().into(),
-                    name: s.name().into(),
-                    fps: s.file.fps,
-                    count: frames.len(),
-                    last_jpeg: frames.last().and_then(|f| f.jpeg().map(Path::to_path_buf)),
-                });
+                let chosen = p.chosen_take(s.id()).to_owned();
+                let takes = p.takes_of(s.id())?;
+                let row = |sc: &dragonslayer_core::Scene, take: usize, owner: Option<String>, count_takes: usize| {
+                    let frames = sc.frames()?;
+                    Ok::<_, dragonslayer_core::Error>(SceneRow {
+                        id: sc.id().into(),
+                        name: sc.name().into(),
+                        fps: sc.file.fps,
+                        count: frames.len(),
+                        last_jpeg: frames.last().and_then(|f| f.jpeg().map(Path::to_path_buf)),
+                        take,
+                        owner,
+                        in_film: sc.id() == chosen,
+                        takes: count_takes,
+                    })
+                };
+                rows.push(row(&s, 1, None, takes.len() + 1)?);
+                for (i, t) in takes.iter().enumerate() {
+                    rows.push(row(t, i + 2, Some(s.id().to_owned()), 0)?);
+                }
             }
             let frames = match p.active_scene() {
                 Ok(s) => s.frames()?,
@@ -446,6 +466,11 @@ impl DragonSlayerApp {
             self.error(e);
         }
         self.refresh();
+    }
+
+    /// Scenes, not counting takes (for "Scene N" names).
+    fn scene_count(&self) -> usize {
+        self.scenes.iter().filter(|r| r.owner.is_none()).count()
     }
 
     fn active_row(&self) -> Option<&SceneRow> {

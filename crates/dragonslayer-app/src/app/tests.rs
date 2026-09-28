@@ -1160,3 +1160,79 @@ fn compile_dialog_can_compile_just_the_marked_frames() {
     r.wait_for("compile finished", |a| a.compile.result.is_some());
     assert!(r.has_label("Saved 2 frames"), "the marked range only");
 }
+
+// ------------------------------------------------------------------ takes
+
+#[test]
+fn a_new_take_becomes_active_and_captures_go_into_it() {
+    let mut r = rig().connected();
+    r.capture_frames(2);
+    r.app_mut().new_take("sc010");
+    assert_eq!(r.app().active_row().unwrap().id, "sc010t2");
+    assert!(r.message().contains("New take"), "{}", r.message());
+    r.capture_frames(3);
+    let rows: Vec<(String, usize, usize, bool)> =
+        r.app().scenes.iter().map(|s| (s.id.clone(), s.take, s.count, s.in_film)).collect();
+    assert_eq!(
+        rows,
+        [("sc010".to_string(), 1, 2, true), ("sc010t2".to_string(), 2, 3, false)],
+        "take 1 stays in the film until another is chosen"
+    );
+    assert_eq!(r.app().scenes[0].takes, 2);
+}
+
+#[test]
+fn choosing_a_take_marks_it_in_the_film() {
+    let mut r = rig().connected();
+    r.app_mut().new_take("sc010");
+    r.app_mut().edit(|p| p.choose_take("sc010", Some("sc010t2")));
+    let in_film: Vec<bool> = r.app().scenes.iter().map(|s| s.in_film).collect();
+    assert_eq!(in_film, [false, true]);
+    r.settle(2);
+    assert!(r.has_label("Take 2"), "takes are listed under their scene");
+}
+
+#[test]
+fn new_scenes_are_numbered_by_scenes_not_takes() {
+    let mut r = rig();
+    r.app_mut().new_take("sc010");
+    r.app_mut().new_take("sc010");
+    r.click("Add scene");
+    assert!(r.app().scenes.iter().any(|s| s.name == "Scene 2"), "{:?}", r.app().scenes.iter().map(|s| &s.name).collect::<Vec<_>>());
+}
+
+#[test]
+fn deleting_the_active_take_goes_back_to_its_scene() {
+    let mut r = rig();
+    r.app_mut().new_take("sc010");
+    r.app_mut().edit(|p| p.delete_scene("sc010t2"));
+    assert_eq!(r.app().active_row().unwrap().id, "sc010");
+    assert_eq!(r.app().scenes.len(), 1);
+}
+
+#[test]
+#[ignore = "writes a PNG for a human to look at"]
+fn screenshot_takes_and_marks() {
+    let Ok(dir) = std::env::var("DS_SHOTS") else { return };
+    let mut r = rig().connected();
+    crate::theme::install(&r.h.ctx, crate::theme::ThemeChoice::DarkTeal);
+    r.capture_frames(6);
+    r.app_mut().new_take("sc010");
+    r.capture_frames(4);
+    r.app_mut().edit(|p| p.choose_take("sc010", Some("sc010t2")));
+    r.click("Add scene");
+    r.capture_frames(2);
+    r.app_mut().edit(|p| p.set_active("sc010"));
+    r.press(Key::Home);
+    r.press(Key::ArrowRight);
+    r.press(Key::OpenBracket);
+    r.press(Key::ArrowRight);
+    r.press(Key::ArrowRight);
+    r.press(Key::CloseBracket);
+    r.press(Key::L);
+    r.settle(10);
+    let img = r.h.render().unwrap();
+    let p = PathBuf::from(dir).join("takes-marks.png");
+    img.save(&p).unwrap();
+    println!("wrote {}", p.display());
+}

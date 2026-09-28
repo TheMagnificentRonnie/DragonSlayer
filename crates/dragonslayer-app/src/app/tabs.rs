@@ -8,7 +8,7 @@ impl DragonSlayerApp {
         ui.add_space(4.0);
         ui.horizontal(|ui| {
             if ui.button(format!("{}  Add scene", ph::PLUS)).clicked() {
-                let n = self.scenes.len() + 1;
+                let n = self.scene_count() + 1;
                 let after = self.active_row().map(|r| r.id.clone());
                 self.edit(|p| p.add_scene(&format!("Scene {n}"), after.as_deref()).map(|_| ()));
             }

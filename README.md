@@ -92,6 +92,7 @@ DragonSlayer is deliberately kept small: it does one job (capture + compile) and
 - **Fill or fit** — the picture fills the viewer edge to edge (cropping the overhang), or shows the whole frame with bars (Preferences → Viewer)
 - **Onion skin** — full-frame ghost or edge-detected outlines of the previous frame, so you can see exactly how far you've moved between shots
 - **Scenes** with independent frame rates, drag-to-reorder, rename, per-scene trash
+- **Takes** — shoot a scene again without deleting the first attempt, flip between takes, and pick which one goes in the film (★)
 - **Never lose a frame** — every capture is a filesystem transaction, replayed on the next launch if the app crashes mid-shot
 - **Import images / rescue from the card** (Tools → Import images…) — rebuild a scene from the camera card or any folder if a project was lost or damaged. JPEG + RAW pairs become one frame, in the order they were taken; unreadable files on a damaged card are skipped and listed, cut-short JPEGs are flagged, and re-running skips what's already in. The card is only read.
 - **RAW + JPEG** kept side by side when the camera supports it
@@ -233,6 +234,8 @@ dragonslayer capture MyFilm sc010 --count 60 --interval 5   # time-lapse: 60 fra
 dragonslayer settings                          # aperture, shutter, ISO, WB, format
 dragonslayer settings iso 400                  # change one (value exactly as listed)
 dragonslayer delete-last MyFilm sc010          # undo last (to trash)
+dragonslayer scene take MyFilm sc010           # new take of a scene (captures go into it)
+dragonslayer scene use MyFilm sc010 2          # the film uses take 2 (1 = the original)
 dragonslayer import MyFilm E:/DCIM --dry-run   # what's on the card
 dragonslayer import MyFilm E:/DCIM             # into a new scene "Imported"
 dragonslayer import MyFilm E:/DCIM --scene sc010   # after sc010's frames
