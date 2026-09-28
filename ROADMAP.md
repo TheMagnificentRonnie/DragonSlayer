@@ -111,7 +111,7 @@ What makes DragonSlayer feel like an intentional product rather than a hobby pro
 
 ### Audio (M)
 
-- ⭐ **Reference audio** — import a WAV / MP3 (dialogue track, music), see its waveform on the timeline, scrub in sync with frames. Essential for lip-sync animation.
+- ✅ **Reference audio** — a WAV / MP3 / FLAC / OGG / M4A per scene (dialogue, music): waveform under the filmstrip, plays along in Preview and blips as you step, drag to line it up, mixed into the compiled video (`scene audio` / `compile --no-audio` on the CLI). *(0.4.0)*
 - ⭐ **Per-frame audio notes** — record a voice memo per frame with the Mac/PC mic. Useful for "come back and fix this" annotations.
 - ⭐ **Sound-timed captures** — space bar down triggers next capture on the next audio waveform peak. Niche but Dragonframe has it.
 
@@ -211,19 +211,22 @@ _Delivers: makes the app usable for actual shooting sessions instead of just cap
 **0.3.0 — Camera control + reliability** *(shipped: camera settings in-app, interval capture, compile progress, camera diagnosis, minimal view, Canon 100D tested, CI builds for both platforms)*
 _Delivers: usable without touching the camera during a shoot, and camera problems explain themselves._
 
-**0.4.0 — Focus assist + UI polish**
-Magnify + peaking. Grid overlays. Typography, empty states, loop range.
+**0.4.0 — Audio + takes** *(pulled forward: reference audio, multiple takes, loop range, save-to-card)*
+_Delivers: dialogue lip-sync workflow, professional shot management._
+
+**0.5.0 — Focus assist + UI polish**
+Magnify + peaking. Grid overlays. Typography, empty states.
 _Delivers: nail focus from the app; doesn't look like a Rust prototype anymore._
 
-**0.5.0 — Phone as camera (macOS Continuity)**
+**0.6.0 — Phone as camera (macOS Continuity)**
 AVFoundation backend, iPhone via Continuity Camera. Matches Stop Motion Studio's core value prop.
 _Delivers: opens DragonSlayer to iOS-camera users on Macs._
 
-**0.6.0 — Audio + takes**
-Reference audio timeline, per-frame notes, multiple takes.
-_Delivers: dialogue lip-sync workflow, professional shot management._
+**0.7.0 — Audio notes**
+Per-frame voice memos, sound-timed captures.
+_Delivers: "come back and fix this" notes on the frames themselves._
 
-**0.7.0+** — motion control, DMX, chroma key, multi-angle capture, cloud review.
+**0.8.0+** — motion control, DMX, chroma key, multi-angle capture, cloud review.
 
 **Distribution (any release)** — signed + notarised Mac build (needs a paid Apple Developer account, US$99/year; removes the first-launch "Open Anyway" step) and an Intel Mac build. Mac + Windows zips on the same release is done: GitHub Actions builds both.
 

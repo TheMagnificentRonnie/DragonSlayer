@@ -31,6 +31,7 @@ impl DragonSlayerApp {
         // Marks live on the active scene, so "only the marked frames" applies to that one.
         let marked = self.marked_range();
         let active_id = self.active_row().map(|r| r.id.clone());
+        let any_audio = self.scenes.iter().any(|r| r.audio);
         egui::Window::new("Compile video")
             .open(&mut open)
             .collapsible(false)
@@ -76,6 +77,12 @@ impl DragonSlayerApp {
                             ui.label("Frames");
                             ui.checkbox(&mut d.only_marked, format!("Only the marked frames ({}–{})", a + 1, b + 1))
                                 .on_hover_text("The range set with [ and ] on the timeline");
+                            ui.end_row();
+                        }
+                        if any_audio {
+                            ui.label("Sound");
+                            ui.checkbox(&mut d.audio, "Include the reference audio")
+                                .on_hover_text("Each scene's sound, where it plays in the film. Off: a silent video");
                             ui.end_row();
                         }
                         if d.scope == Scope::Each {
@@ -185,6 +192,7 @@ impl DragonSlayerApp {
                             framing: d.framing,
                             fps_override: d.fps,
                             frames: marked.filter(|_| d.only_marked && scope == Scope::Scene && scene.is_some() && scene == active_id),
+                            audio: d.audio,
                             ffmpeg: None,
                         };
                         let (tx, rx) = mpsc::channel();

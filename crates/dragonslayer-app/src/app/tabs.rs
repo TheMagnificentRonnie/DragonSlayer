@@ -251,6 +251,38 @@ impl DragonSlayerApp {
                     }
                 }
             }
+            if self.scene_audio.is_some() {
+                ui.separator();
+                let icon = if self.audio.muted { ph::SPEAKER_SIMPLE_X } else { ph::SPEAKER_SIMPLE_HIGH };
+                if ui
+                    .selectable_label(!self.audio.muted, icon)
+                    .on_hover_text("Hear the reference audio while you play and step through frames")
+                    .clicked()
+                {
+                    self.audio.muted = !self.audio.muted;
+                    self.audio.stop();
+                }
+                ui.label(RichText::new("Sound at frame 1").color(crate::theme::palette().text_muted));
+                let mut secs = self.audio_start().unwrap_or(0.0);
+                let r = ui
+                    .add(egui::DragValue::new(&mut secs).range(0.0..=36_000.0).speed(0.01).fixed_decimals(2).suffix(" s"))
+                    .on_hover_text("How far into the sound frame 1 is. Drag here, or drag the waveform sideways, to line them up");
+                if r.changed() {
+                    self.audio.dragging_start = Some(secs);
+                }
+                if (r.drag_stopped() || r.lost_focus() || (r.changed() && !r.dragged() && !r.has_focus()))
+                    && let Some(s) = self.audio.dragging_start.take()
+                {
+                    self.set_audio_start(s);
+                }
+            } else if self.project.is_some()
+                && ui
+                    .button(format!("{}  Add sound…", ph::MUSIC_NOTES))
+                    .on_hover_text("Reference audio (music, dialogue) to animate to: see its waveform here and hear it as you play")
+                    .clicked()
+            {
+                self.pick_scene_audio();
+            }
         });
         self.timeline(ui);
     }

@@ -24,6 +24,7 @@ fn settings() -> impl Strategy<Value = Settings> {
             framing,
             fps_override,
             frames: None,
+            audio: false,
             ffmpeg: None,
         })
 }

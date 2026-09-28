@@ -47,6 +47,7 @@ use dragonslayer_camera::diag::UsbCamera;
 
 type UsbScan = Result<Vec<UsbCamera>, String>;
 
+mod audio;
 mod compile_ui;
 mod diagnose;
 mod help;
@@ -85,6 +86,8 @@ struct SceneRow {
     in_film: bool,
     /// For a scene row: how many takes it has, counting itself.
     takes: usize,
+    /// A scene row with reference audio.
+    audio: bool,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -117,6 +120,8 @@ struct CompileDialog {
     fps: Option<u32>,
     /// Compile only the marked frames of the active scene.
     only_marked: bool,
+    /// Put the scenes' reference audio in the video.
+    audio: bool,
     running: Option<Receiver<Result<CompileDone, String>>>,
     /// 0.0–1.0 as f32 bits, written by the compile thread.
     progress: Arc<AtomicU32>,
@@ -137,6 +142,7 @@ impl Default for CompileDialog {
             framing: Framing::Fit,
             fps: None,
             only_marked: false,
+            audio: true,
             running: None,
             progress: Arc::new(AtomicU32::new(0)),
             progress_scene: Arc::default(),
@@ -224,6 +230,12 @@ pub struct DragonSlayerApp {
     loop_on: bool,
     message: Option<(String, bool, Instant)>,
     keys: Vec<Key>,
+    /// Reference audio: the decoded sound and what's playing.
+    audio: audio::Audio,
+    /// The active scene's sound file and the second in it at frame 1.
+    scene_audio: Option<(PathBuf, f64)>,
+    /// The active scene's frame rate.
+    active_fps: u32,
     _awake: Option<keepawake::KeepAwake>,
 }
 
@@ -343,6 +355,9 @@ impl DragonSlayerApp {
             compile: CompileDialog::default(),
             message: None,
             keys: Vec::new(),
+            audio: audio::Audio::default(),
+            scene_audio: None,
+            active_fps: 12,
             _awake: None,
         };
         app.recent = crate::recent::Recent::load();
@@ -420,6 +435,7 @@ impl DragonSlayerApp {
                         owner,
                         in_film: sc.id() == chosen,
                         takes: count_takes,
+                        audio: sc.file.audio.is_some(),
                     })
                 };
                 rows.push(row(&s, 1, None, takes.len() + 1)?);
@@ -427,16 +443,18 @@ impl DragonSlayerApp {
                     rows.push(row(t, i + 2, Some(s.id().to_owned()), 0)?);
                 }
             }
-            let frames = match p.active_scene() {
-                Ok(s) => s.frames()?,
-                Err(_) => Vec::new(),
+            let (frames, audio, fps) = match p.active_scene() {
+                Ok(s) => (s.frames()?, p.audio_for(&s), p.fps_for(&s)),
+                Err(_) => (Vec::new(), None, p.file.fps),
             };
-            Ok::<_, dragonslayer_core::Error>((rows, frames))
+            Ok::<_, dragonslayer_core::Error>((rows, frames, audio, fps))
         })();
         match result {
-            Ok((rows, frames)) => {
+            Ok((rows, frames, audio, fps)) => {
                 self.scenes = rows;
                 self.frames = frames;
+                self.scene_audio = audio;
+                self.active_fps = fps.max(1);
                 // A different scene or a deleted frame: don't hold a stale picture.
                 self.preview_hold = None;
                 // Marks belong to one scene.
@@ -709,6 +727,8 @@ impl eframe::App for DragonSlayerApp {
 
         // Advance playback if we're currently playing.
         self.tick_playback();
+        // Keep the reference audio in step with it.
+        self.sync_audio(&ctx);
         // Advance an in-progress interval-capture sequence.
         self.tick_interval();
 

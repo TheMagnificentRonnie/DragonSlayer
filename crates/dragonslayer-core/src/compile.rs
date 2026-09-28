@@ -55,6 +55,8 @@ pub struct Settings {
     /// Only these frames of the scene (0-based, inclusive), e.g. a marked range. Applies
     /// when compiling one scene; ignored for the whole project.
     pub frames: Option<(usize, usize)>,
+    /// Put the scenes' reference audio in the video.
+    pub audio: bool,
     /// ffmpeg executable; defaults to `ffmpeg` on PATH.
     pub ffmpeg: Option<PathBuf>,
 }
@@ -70,6 +72,17 @@ pub struct Output {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Shot {
     pub path: PathBuf,
+    pub seconds: f64,
+}
+
+/// A piece of a scene's reference audio placed in the film.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AudioClip {
+    pub path: PathBuf,
+    /// Seconds into the sound file.
+    pub from: f64,
+    /// Seconds into the film.
+    pub at: f64,
     pub seconds: f64,
 }
 
@@ -89,6 +102,17 @@ pub fn plan_range(
     fps_override: Option<u32>,
     frames: Option<(usize, usize)>,
 ) -> Result<(Vec<Shot>, Vec<String>)> {
+    plan_with_audio(project, scene, fps_override, frames).map(|(shots, warnings, _)| (shots, warnings))
+}
+
+/// [`plan_range`], plus where each scene's reference audio plays. The audio keeps each
+/// scene's own timing: a range starts it at the range's first frame.
+pub fn plan_with_audio(
+    project: &Project,
+    scene: Option<&str>,
+    fps_override: Option<u32>,
+    frames: Option<(usize, usize)>,
+) -> Result<(Vec<Shot>, Vec<String>, Vec<AudioClip>)> {
     let range = if scene.is_some() { frames } else { None };
     let scenes = match scene {
         Some(key) => vec![project.find_scene(key)?],
@@ -97,15 +121,20 @@ pub fn plan_range(
     };
     let mut shots = Vec::new();
     let mut warnings = Vec::new();
+    let mut clips = Vec::new();
+    let mut at = 0.0;
     for s in &scenes {
         let fps = fps_override.unwrap_or_else(|| project.fps_for(s));
         let seconds = 1.0 / f64::from(fps);
         let mut frames = s.frames()?;
+        let mut first = 0;
         if let Some((a, b)) = range {
             let last = frames.len().saturating_sub(1);
             let (a, b) = (a.min(b).min(last), a.max(b).min(last));
             frames = frames.drain(..).skip(a).take(b - a + 1).collect();
+            first = a;
         }
+        let before = shots.len();
         if frames.is_empty() {
             warnings.push(format!("scene {:?} ({}) is empty; skipped", s.name(), s.id()));
             continue;
@@ -116,12 +145,20 @@ pub fn plan_range(
                 None => warnings.push(format!("scene {} frame {} has no JPEG; skipped", s.id(), f.id)),
             }
         }
+        let secs = (shots.len() - before) as f64 * seconds;
+        if let Some((path, start)) = project.audio_for(s)
+            && secs > 0.0
+        {
+            let from = start + first as f64 / f64::from(project.fps_for(s));
+            clips.push(AudioClip { path, from, at, seconds: secs });
+        }
+        at += secs;
     }
     if shots.is_empty() {
         let what = scene.map_or("the project".to_string(), |s| format!("scene {s:?}"));
         return Err(Error::NothingToCompile(format!("{what} has no frames")));
     }
-    Ok((shots, warnings))
+    Ok((shots, warnings, clips))
 }
 
 pub fn compile(project: &Project, scene: Option<&str>, settings: &Settings) -> Result<Output> {
@@ -135,7 +172,8 @@ pub fn compile_with_progress(
     settings: &Settings,
     mut on_progress: impl FnMut(f32),
 ) -> Result<Output> {
-    let (shots, warnings) = plan_range(project, scene, settings.fps_override, settings.frames)?;
+    let (shots, warnings, clips) = plan_with_audio(project, scene, settings.fps_override, settings.frames)?;
+    let clips = if settings.audio { clips } else { Vec::new() };
     let total_secs: f64 = shots.iter().map(|s| s.seconds).sum();
     let exports = paths::exports_dir(&project.root);
     fs::create_dir_all(&exports).at(&exports)?;
@@ -158,7 +196,7 @@ pub fn compile_with_progress(
     let ffmpeg = settings.ffmpeg.clone().unwrap_or_else(|| "ffmpeg".into());
     let result = run_ffmpeg(
         &ffmpeg,
-        ffmpeg_args(&list, &out, settings.fps_override.unwrap_or(project.file.fps), settings),
+        ffmpeg_args_with_audio(&list, &out, settings.fps_override.unwrap_or(project.file.fps), settings, &clips),
         total_secs,
         &mut on_progress,
     );
@@ -197,9 +235,10 @@ pub fn compile_each(
             warnings.push(format!("scene {:?} ({}) is empty; skipped", s.name(), s.id()));
             continue;
         }
-        let (shots, w) = plan(project, Some(s.id()), settings.fps_override)?;
+        let (shots, w, clips) = plan_with_audio(project, Some(s.id()), settings.fps_override, None)?;
         warnings.extend(w);
-        plans.push((named.name().to_owned(), s, shots));
+        let clips = if settings.audio { clips } else { Vec::new() };
+        plans.push((named.name().to_owned(), s, shots, clips));
     }
     if plans.is_empty() {
         return Err(Error::NothingToCompile("the project has no frames".into()));
@@ -215,11 +254,11 @@ pub fn compile_each(
 
     let ffmpeg = settings.ffmpeg.clone().unwrap_or_else(|| "ffmpeg".into());
     let secs = |shots: &[Shot]| shots.iter().map(|s| s.seconds).sum::<f64>();
-    let total: f64 = plans.iter().map(|(_, _, shots)| secs(shots)).sum();
+    let total: f64 = plans.iter().map(|(_, _, shots, _)| secs(shots)).sum();
     let width = if plans.len() >= 100 { 3 } else { 2 };
     let mut done = 0.0;
     let mut files = Vec::new();
-    for (i, (scene_name, s, shots)) in plans.iter().enumerate() {
+    for (i, (scene_name, s, shots, clips)) in plans.iter().enumerate() {
         let name = format!("{:0width$} {}.{}", i + 1, file_name_safe(scene_name), settings.format.ext());
         let out = paths::unique_path(&dir, &name);
         let list = dir.join(format!(".{}.concat.txt", out.file_stem().unwrap().to_string_lossy()));
@@ -227,7 +266,8 @@ pub fn compile_each(
         let fps = settings.fps_override.unwrap_or_else(|| project.fps_for(s));
         let scene_secs = secs(shots);
         on_progress((done / total) as f32, scene_name);
-        let result = run_ffmpeg(&ffmpeg, ffmpeg_args(&list, &out, fps, settings), scene_secs, &mut |f| {
+        let args = ffmpeg_args_with_audio(&list, &out, fps, settings, clips);
+        let result = run_ffmpeg(&ffmpeg, args, scene_secs, &mut |f| {
             on_progress(((done + f64::from(f) * scene_secs) / total) as f32, scene_name);
         });
         let _ = fs::remove_file(&list);
@@ -302,6 +342,12 @@ pub fn concat_list(shots: &[Shot]) -> String {
 }
 
 pub fn ffmpeg_args(list: &Path, out: &Path, fps: u32, settings: &Settings) -> Vec<String> {
+    ffmpeg_args_with_audio(list, out, fps, settings, &[])
+}
+
+/// [`ffmpeg_args`] with reference audio: each clip is trimmed, placed at its time in the
+/// film and mixed into one track (AAC in MP4, PCM in ProRes).
+pub fn ffmpeg_args_with_audio(list: &Path, out: &Path, fps: u32, settings: &Settings, audio: &[AudioClip]) -> Vec<String> {
     let mut filters = vec![match (settings.resolution, settings.framing) {
         (Resolution::Source, _) => "scale=trunc(iw/2)*2:trunc(ih/2)*2".to_string(),
         (r, framing) => {
@@ -332,8 +378,27 @@ pub fn ffmpeg_args(list: &Path, out: &Path, fps: u32, settings: &Settings) -> Ve
     .collect();
     args.push("-i".into());
     args.push(list.to_string_lossy().into_owned());
-    args.push("-vf".into());
-    args.push(filters.join(","));
+    if audio.is_empty() {
+        args.push("-vf".into());
+        args.push(filters.join(","));
+    } else {
+        let mut graph = format!("[0:v]{}[v]", filters.join(","));
+        for (i, clip) in audio.iter().enumerate() {
+            args.push("-i".into());
+            args.push(clip.path.to_string_lossy().into_owned());
+            let _ = write!(
+                graph,
+                ";[{}:a]atrim=start={:.6}:duration={:.6},asetpts=PTS-STARTPTS,adelay={}:all=1[a{i}]",
+                i + 1,
+                clip.from,
+                clip.seconds,
+                (clip.at * 1000.0).round() as u64,
+            );
+        }
+        let inputs: String = (0..audio.len()).map(|i| format!("[a{i}]")).collect();
+        let _ = write!(graph, ";{inputs}amix=inputs={}:normalize=0:duration=longest[a]", audio.len());
+        args.extend(["-filter_complex".into(), graph, "-map".into(), "[v]".into(), "-map".into(), "[a]".into()]);
+    }
     match settings.format {
         Format::H264 => args.extend(
             ["-c:v", "libx264", "-preset", "slow", "-crf", "18", "-pix_fmt", "yuv420p", "-movflags", "+faststart"]
@@ -342,6 +407,13 @@ pub fn ffmpeg_args(list: &Path, out: &Path, fps: u32, settings: &Settings) -> Ve
         Format::ProRes => args.extend(
             ["-c:v", "prores_ks", "-profile:v", "2", "-pix_fmt", "yuv422p10le"].map(String::from),
         ),
+    }
+    if !audio.is_empty() {
+        let codec: &[&str] = match settings.format {
+            Format::H264 => &["-c:a", "aac", "-b:a", "192k"],
+            Format::ProRes => &["-c:a", "pcm_s16le"],
+        };
+        args.extend(codec.iter().map(|s| s.to_string()));
     }
     args.push(out.to_string_lossy().into_owned());
     args

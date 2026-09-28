@@ -335,6 +335,8 @@ impl DragonSlayerApp {
             );
         }
 
+        self.waveform(ui, rect.left() + 4.0, stride, start, end, cur);
+
         // Click to jump to a frame.
         if (resp.clicked() || resp.dragged())
             && let Some(p) = resp.interact_pointer_pos()
@@ -348,6 +350,57 @@ impl DragonSlayerApp {
                 }
                 self.mode = Mode::Preview { index: target, playing: false, last_advance: Instant::now() };
             }
+        }
+    }
+
+    /// The reference audio under the filmstrip, lined up with the frames above it: each
+    /// frame's stretch of sound fills the width of its thumbnail. Drag sideways to slide
+    /// the sound against the frames.
+    fn waveform(&mut self, ui: &mut egui::Ui, left: f32, stride: f32, start: usize, end: usize, cur: usize) {
+        if self.scene_audio.is_none() {
+            return;
+        }
+        let (rect, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 34.0), Sense::drag());
+        let painter = ui.painter_at(rect);
+        painter.rect_filled(rect, 3.0, Color32::from_gray(20));
+        let pal = crate::theme::palette();
+        let Some(track) = self.audio.track.clone() else {
+            let text = if self.audio.loading() { "Reading the sound…" } else { "The sound file can't be played" };
+            painter.text(rect.center(), Align2::CENTER_CENTER, text, FontId::proportional(11.0), Color32::from_gray(150));
+            return;
+        };
+        let fps = f64::from(self.active_fps.max(1));
+        let t0 = self.audio_start().unwrap_or(0.0);
+        let per_px = 1.0 / (fps * f64::from(stride));
+        let mid = rect.center().y;
+        let half = rect.height() / 2.0 - 3.0;
+        let x_end = left + (end - start) as f32 * stride;
+        let mut x = left;
+        while x < x_end.min(rect.right()) {
+            let frame = start as f64 + f64::from((x - left) / stride);
+            let t = t0 + frame / fps;
+            let h = track.peak(t, t + per_px) * half;
+            let played = !self.mode.is_capture() && frame.floor() as usize == cur;
+            let color = if played { pal.accent } else { pal.accent.gamma_multiply(0.55) };
+            if t < track.seconds() {
+                painter.vline(x, (mid - h.max(0.5))..=(mid + h.max(0.5)), Stroke::new(1.0, color));
+            }
+            x += 1.0;
+        }
+        resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Other, true, "Reference audio waveform"));
+        let resp = resp.on_hover_text(format!(
+            "{}\nDrag sideways to slide the sound against the frames",
+            track.path.file_name().unwrap_or_default().to_string_lossy()
+        ));
+        if resp.dragged() {
+            // Dragging right moves the sound later: frame 1 lands earlier in it.
+            let moved = f64::from(resp.drag_delta().x) / f64::from(stride) / fps;
+            self.audio.dragging_start = Some((t0 - moved).max(0.0));
+        }
+        if resp.drag_stopped()
+            && let Some(s) = self.audio.dragging_start.take()
+        {
+            self.set_audio_start(s);
         }
     }
 

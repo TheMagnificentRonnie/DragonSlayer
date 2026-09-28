@@ -547,3 +547,24 @@ fn takes_from_the_command_line() {
     // Nonsense is refused.
     assert!(!run(["scene", "use", p, "sc010", "9"]).status.success());
 }
+
+#[test]
+fn reference_audio_from_the_command_line() {
+    let tmp = tempfile::tempdir().unwrap();
+    let proj = tmp.path().join("Film");
+    let p = proj.to_str().unwrap();
+    assert!(run(["--mock", "new", p]).status.success());
+    let song = tmp.path().join("song.wav");
+    std::fs::write(&song, b"RIFF").unwrap();
+    let out = run(["scene", "audio", p, "Scene 1", song.to_str().unwrap(), "--start", "1.25"]);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let text = String::from_utf8_lossy(&out.stdout).into_owned();
+    assert!(text.contains("song.wav from 1.25 s"), "{text}");
+    assert!(proj.join("audio/song.wav").exists());
+    // Just the start; then removed.
+    let text = String::from_utf8_lossy(&run(["scene", "audio", p, "sc010", "--start", "3"]).stdout).into_owned();
+    assert!(text.contains("from 3.00 s"), "{text}");
+    assert!(!run(["scene", "audio", p, "sc010", "--start", "-1"]).status.success());
+    let text = String::from_utf8_lossy(&run(["scene", "audio", p, "sc010", "none"]).stdout).into_owned();
+    assert!(text.contains("no reference audio"), "{text}");
+}

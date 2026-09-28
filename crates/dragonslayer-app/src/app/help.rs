@@ -237,6 +237,7 @@ pub(super) fn help_content(ui: &mut egui::Ui, os: HelpOs) {
         it again without losing what you have. The new take becomes active, so Space shoots into \
         it. Takes are listed under their scene; right-click one → Use this take in the film. \
         The ★ marks the take the film and Compile use.");
+    p(ui, "· Reference audio: Scene → Reference audio… (or Add sound… on the timeline) gives         the active scene a music or dialogue track (WAV, MP3, FLAC, OGG, M4A), copied into the         project's audio folder. Its waveform sits under the filmstrip, one frame's worth of         sound under each frame. It plays along in Preview and blips as you step or scrub. Drag         the waveform sideways, or set Sound at frame 1, to line it up. Compile puts it in the         video (untick Include the reference audio for a silent one). Takes share their scene's.");
     p(ui, "· Drag a scene up or down to reorder it in the film.");
     p(ui, "· Right-click for frame rate override and delete. Deleted scenes go to the project \
         trash folder — recover them by moving them back.");

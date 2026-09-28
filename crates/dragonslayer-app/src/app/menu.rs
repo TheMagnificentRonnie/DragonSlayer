@@ -127,6 +127,20 @@ impl DragonSlayerApp {
                     }
                     ui.close();
                 }
+                if ui
+                    .add_enabled(self.active_row().is_some(), egui::Button::new(format!("{}  Reference audio…", ph::MUSIC_NOTES)))
+                    .on_hover_text("Music or dialogue to animate to: its waveform sits under the filmstrip and it plays along")
+                    .clicked()
+                {
+                    ui.close();
+                    self.pick_scene_audio();
+                }
+                if self.scene_audio.is_some() && ui.button(format!("{}  Remove reference audio", ph::SPEAKER_SIMPLE_SLASH)).clicked() {
+                    if let Some(id) = self.project.as_ref().and_then(|p| p.file.active_scene.clone()) {
+                        self.set_scene_audio(&id, None);
+                    }
+                    ui.close();
+                }
                 if ui.add_enabled(self.active_row().is_some(), egui::Button::new(format!("{}  Rename active scene", ph::PENCIL_SIMPLE))).clicked() {
                     if let Some(row) = self.active_row() {
                         self.renaming = Some((row.id.clone(), row.name.clone()));

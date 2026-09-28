@@ -16,6 +16,10 @@ pub fn project_trash(root: &Path) -> PathBuf {
     root.join("trash")
 }
 
+pub fn audio_dir(root: &Path) -> PathBuf {
+    root.join("audio")
+}
+
 pub fn exports_dir(root: &Path) -> PathBuf {
     root.join("exports")
 }

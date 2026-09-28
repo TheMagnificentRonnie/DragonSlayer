@@ -1236,3 +1236,151 @@ fn screenshot_takes_and_marks() {
     img.save(&p).unwrap();
     println!("wrote {}", p.display());
 }
+
+// ------------------------------------------------------------------ reference audio
+
+/// A 2-second mono WAV at 8 kHz: a silent second, then a loud one.
+fn wav(path: &Path) {
+    let rate = 8000u32;
+    let samples: Vec<i16> = (0..rate * 2).map(|i| if i < rate { 0 } else if i % 20 < 10 { 26000 } else { -26000 }).collect();
+    let data = samples.len() as u32 * 2;
+    let mut b = Vec::new();
+    b.extend_from_slice(b"RIFF");
+    b.extend_from_slice(&(36 + data).to_le_bytes());
+    b.extend_from_slice(b"WAVEfmt ");
+    b.extend_from_slice(&16u32.to_le_bytes());
+    b.extend_from_slice(&1u16.to_le_bytes()); // PCM
+    b.extend_from_slice(&1u16.to_le_bytes()); // mono
+    b.extend_from_slice(&rate.to_le_bytes());
+    b.extend_from_slice(&(rate * 2).to_le_bytes());
+    b.extend_from_slice(&2u16.to_le_bytes());
+    b.extend_from_slice(&16u16.to_le_bytes());
+    b.extend_from_slice(b"data");
+    b.extend_from_slice(&data.to_le_bytes());
+    for s in samples {
+        b.extend_from_slice(&s.to_le_bytes());
+    }
+    fs::write(path, b).unwrap();
+}
+
+/// A rig whose first scene has the test WAV as reference audio, decoded and ready.
+fn rig_with_sound<'a>() -> Rig<'a> {
+    let mut r = rig_with(true, |root| {
+        let src = root.parent().unwrap().join("tone.wav");
+        wav(&src);
+        Project::open(root).unwrap().set_scene_audio("sc010", Some(&src)).unwrap();
+    })
+    .connected();
+    r.wait_for("the sound to decode", |a| a.audio.track.is_some());
+    r
+}
+
+#[test]
+fn a_sound_decodes_to_a_waveform_quiet_where_it_is_quiet() {
+    let tmp = tempfile::tempdir().unwrap();
+    let f = tmp.path().join("t.wav");
+    wav(&f);
+    let t = audio::decode(&f).unwrap();
+    assert_eq!(t.rate, 8000);
+    assert!((t.seconds() - 2.0).abs() < 0.01, "{}", t.seconds());
+    assert!(t.peak(0.1, 0.9) < 0.01, "first second is silent");
+    assert!(t.peak(1.1, 1.9) > 0.7, "second second is loud");
+    assert_eq!(t.peak(5.0, 6.0), 0.0, "past the end");
+    assert!(audio::decode(&tmp.path().join("missing.wav")).is_err());
+    fs::write(tmp.path().join("junk.wav"), b"not a sound").unwrap();
+    assert!(audio::decode(&tmp.path().join("junk.wav")).is_err());
+}
+
+#[test]
+fn the_waveform_sits_under_the_filmstrip() {
+    let mut r = rig_with_sound();
+    r.capture_frames(2);
+    r.settle(2);
+    assert!(r.has_label("Reference audio waveform"));
+    assert!(r.has_label("Sound at frame 1"));
+    // Without a sound, the timeline offers to add one instead.
+    r.app_mut().set_scene_audio("sc010", None);
+    r.settle(2);
+    assert!(!r.has_label("Reference audio waveform"));
+    assert!(r.has_label("Add sound"));
+}
+
+#[test]
+fn stepping_through_frames_plays_each_frames_sound() {
+    let mut r = rig_with_sound();
+    r.capture_frames(4);
+    r.app_mut().set_audio_start(0.5);
+    r.press(Key::Home);
+    r.press(Key::ArrowRight);
+    r.press(Key::ArrowRight);
+    r.settle(1);
+    let cue = r.app().audio.cue.unwrap();
+    assert!(cue.snippet);
+    assert!((cue.from - (0.5 + 2.0 / 12.0)).abs() < 1e-9, "frame 3 at 12 fps, sound from 0.5 s: {cue:?}");
+}
+
+#[test]
+fn playback_plays_the_sound_from_the_frame_it_starts_on_and_again_after_a_loop() {
+    let mut r = rig_with_sound();
+    r.capture_frames(6);
+    r.app_mut().mark_in = Some(2);
+    r.app_mut().mark_out = Some(4);
+    r.app_mut().loop_on = true;
+    r.press(Key::P);
+    r.settle(1);
+    let cue = r.app().audio.cue.unwrap();
+    assert!(!cue.snippet);
+    assert!((cue.from - 2.0 / 12.0).abs() < 1e-9, "starts at the in point: {cue:?}");
+    // Mid-range it carries on; after the wrap it starts again from the in point.
+    r.app_mut().audio.cue = None;
+    let deadline = Instant::now() + WAIT;
+    let mut last = 2;
+    let mut wrapped = false;
+    while !wrapped && Instant::now() < deadline {
+        r.h.step();
+        let now = r.app().mode.preview_index().unwrap();
+        if now > last {
+            assert!(r.app().audio.cue.is_none(), "no restart while it plays on");
+        }
+        wrapped = now < last;
+        last = now;
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(wrapped);
+    let cue = r.app().audio.cue.expect("sound restarted at the loop");
+    assert!((cue.from - 2.0 / 12.0).abs() < 1e-9, "{cue:?}");
+}
+
+#[test]
+fn compile_dialog_offers_the_sound_only_when_there_is_one() {
+    let mut r = rig_with_sound();
+    r.capture_frames(1);
+    r.app_mut().open_compile(None);
+    r.settle(2);
+    assert!(r.has_label("Include the reference audio"));
+    assert!(r.app().compile.audio, "on by default");
+    r.app_mut().compile.open = false;
+    r.app_mut().set_scene_audio("sc010", None);
+    r.app_mut().open_compile(None);
+    r.settle(2);
+    assert!(!r.has_label("Include the reference audio"));
+}
+
+#[test]
+#[ignore = "writes a PNG for a human to look at"]
+fn screenshot_audio() {
+    let Ok(dir) = std::env::var("DS_SHOTS") else { return };
+    let mut r = rig_with_sound();
+    crate::theme::install(&r.h.ctx, crate::theme::ThemeChoice::DarkTeal);
+    r.capture_frames(12);
+    r.app_mut().set_audio_start(0.5);
+    r.press(Key::Home);
+    for _ in 0..7 {
+        r.press(Key::ArrowRight);
+    }
+    r.settle(10);
+    let img = r.h.render().unwrap();
+    let p = PathBuf::from(dir).join("audio.png");
+    img.save(&p).unwrap();
+    println!("wrote {}", p.display());
+}

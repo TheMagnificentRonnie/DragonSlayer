@@ -105,6 +105,9 @@ enum Cmd {
         /// Only these frames of the scene, 1-based and inclusive, e.g. `--frames 12-40`.
         #[arg(long, requires = "scene", value_parser = parse_frames)]
         frames: Option<(usize, usize)>,
+        /// Leave the scenes' reference audio out of the video.
+        #[arg(long)]
+        no_audio: bool,
     },
 }
 
@@ -140,6 +143,17 @@ enum SceneCmd {
     Delete { project: PathBuf, scene: String },
     /// Set a scene's frame rate, or `project` to use the project rate.
     Fps { project: PathBuf, scene: String, fps: String },
+    /// Set a scene's reference audio (copied into the project), where frame 1 falls in it,
+    /// or `none` to remove it.
+    Audio {
+        project: PathBuf,
+        scene: String,
+        /// A sound file (WAV, MP3, FLAC, OGG, M4A), or `none`. Omit to change only --start.
+        file: Option<String>,
+        /// Seconds into the sound at frame 1.
+        #[arg(long)]
+        start: Option<f64>,
+    },
     /// Start a new take of a scene (it becomes active: captures go into it).
     Take { project: PathBuf, scene: String },
     /// Choose which take of a scene the film uses: a take number (1 is the scene itself),
@@ -230,7 +244,7 @@ fn run(cli: Cli) -> Result<()> {
             let frame = s.delete_last()?;
             println!("Moved frame {frame} of {} to trash ({} left)", s.name(), s.frame_count()?);
         }
-        Cmd::Compile { project, scene, format, resolution, crop, fps, each, frames } => {
+        Cmd::Compile { project, scene, format, resolution, crop, fps, each, frames, no_audio } => {
             let p = open(&project)?;
             let settings = Settings {
                 format: match format {
@@ -245,6 +259,7 @@ fn run(cli: Cli) -> Result<()> {
                 framing: if crop { Framing::Crop } else { Framing::Fit },
                 fps_override: fps,
                 frames,
+                audio: !no_audio,
                 ffmpeg: None,
             };
             if each {
@@ -301,6 +316,23 @@ fn scene(action: SceneCmd) -> Result<()> {
                     let active = if p.file.active_scene.as_deref() == Some(t.id()) { "*" } else { " " };
                     println!("{active}       take {}  {}  ({} frames){}", n + 2, t.id(), t.frame_count()?, star(t.id()));
                 }
+            }
+        }
+        SceneCmd::Audio { project, scene, file, start } => {
+            let mut p = open(&project)?;
+            let id = p.find_scene(&scene)?.id().to_owned();
+            match file.as_deref() {
+                Some("none") => p.set_scene_audio(&id, None)?,
+                Some(f) => p.set_scene_audio(&id, Some(Path::new(f)))?,
+                None => {}
+            }
+            if let Some(secs) = start {
+                anyhow::ensure!(secs >= 0.0 && secs.is_finite(), "--start is seconds from the start of the sound");
+                p.set_audio_start(&id, (secs * 1000.0).round() as u64)?;
+            }
+            match p.audio_for(&p.scene(&id)?) {
+                Some((path, at)) => println!("{id}: {} from {at:.2} s at frame 1", path.display()),
+                None => println!("{id}: no reference audio"),
             }
         }
         SceneCmd::Take { project, scene } => {

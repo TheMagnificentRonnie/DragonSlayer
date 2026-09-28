@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{Error, IoContext, Result};
 use crate::journal::{JournalEntry, JournalOp};
-use crate::scene::{Scene, SceneFile};
+use crate::scene::{Scene, SceneAudio, SceneFile};
 use crate::{atomic, capture, paths};
 
 pub const FORMAT: &str = "dragonslayer/1";
@@ -173,7 +173,7 @@ impl Project {
         };
         let scene = Scene::create(
             paths::scene_dir(&self.root, &take_id),
-            SceneFile { id: take_id.clone(), name: format!("{} · take {}", base.name(), extra + 2), fps: base.file.fps },
+            SceneFile { id: take_id.clone(), name: format!("{} · take {}", base.name(), extra + 2), fps: base.file.fps, audio: None },
         )?;
         self.file.takes.entry(owner).or_default().extra.push(take_id.clone());
         self.file.active_scene = Some(take_id);
@@ -237,7 +237,7 @@ impl Project {
         let id = self.new_scene_id(pos);
         let scene = Scene::create(
             paths::scene_dir(&self.root, &id),
-            SceneFile { id: id.clone(), name: name.into(), fps: None },
+            SceneFile { id: id.clone(), name: name.into(), fps: None, audio: None },
         )?;
         self.file.scenes.insert(pos, id.clone());
         self.file.active_scene = Some(id);
@@ -255,6 +255,52 @@ impl Project {
         let mut scene = self.scene(id)?;
         scene.file.fps = fps;
         scene.save()
+    }
+
+    /// Reference audio for a scene or take (a take uses its scene's): the sound file and
+    /// the second in it at frame 1.
+    pub fn audio_for(&self, scene: &Scene) -> Option<(PathBuf, f64)> {
+        let owner = self.take_owner(scene.id()).and_then(|o| self.scene(o).ok());
+        let audio = owner.as_ref().unwrap_or(scene).file.audio.as_ref()?;
+        Some((self.root.join(&audio.file), audio.start_ms as f64 / 1000.0))
+    }
+
+    /// Copies `source` into the project's `audio/` folder and makes it the reference audio
+    /// of scene `id` (or of the scene a take belongs to), from its start. `None` removes it
+    /// from the scene; the file stays in `audio/`.
+    pub fn set_scene_audio(&mut self, id: &str, source: Option<&Path>) -> Result<()> {
+        let mut scene = self.scene(self.take_owner(id).unwrap_or(id))?;
+        scene.file.audio = match source {
+            None => None,
+            Some(src) => {
+                let dir = paths::audio_dir(&self.root);
+                fs::create_dir_all(&dir).at(&dir)?;
+                let name = src.file_name().map_or_else(|| "audio".into(), |n| n.to_string_lossy().into_owned());
+                let size = |p: &Path| fs::metadata(p).map(|m| m.len()).ok();
+                // The same file already in audio/ (picked from there, or added before) is reused.
+                let same = dir.join(&name);
+                let dest = if size(&same).is_some() && size(&same) == size(src) {
+                    same
+                } else {
+                    let dest = paths::unique_path(&dir, &name);
+                    fs::copy(src, &dest).at(src)?;
+                    dest
+                };
+                let file = format!("audio/{}", dest.file_name().unwrap_or_default().to_string_lossy());
+                Some(SceneAudio { file, start_ms: 0 })
+            }
+        };
+        scene.save()
+    }
+
+    /// Where in its reference audio scene `id` (or its takes) starts: milliseconds at frame 1.
+    pub fn set_audio_start(&mut self, id: &str, start_ms: u64) -> Result<()> {
+        let mut scene = self.scene(self.take_owner(id).unwrap_or(id))?;
+        if let Some(a) = &mut scene.file.audio {
+            a.start_ms = start_ms;
+            scene.save()?;
+        }
+        Ok(())
     }
 
     /// Moves a scene to `to` (0-based, clamped).

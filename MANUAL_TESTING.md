@@ -231,6 +231,13 @@ Windows driver.
       the dial to **P**/**A**: some settings become read-only (greyed out) rather than erroring.
       Change settings ~20 times with live view running: no wedge. Record any setting that
       is missing for this model and the name `gphoto2 --list-config` uses for it.
+- [ ] **6.10d Reference audio.** Scene → Reference audio…, pick a song. The waveform appears
+      under the filmstrip. Step with ← →: a blip of sound each frame. P: the song plays in
+      step with the frames; P again stops it; with Loop on it starts again at the in point.
+      Drag the waveform sideways: *Sound at frame 1* changes and stays after reopening the
+      project. Mute button silences it. Compile: the MP4 has the song, starting where frame 1
+      is; untick *Include the reference audio*: silent. No sound device (unplug headphones on a
+      desktop): the app keeps working, just silent.
 - [ ] **6.10c Save to card.** Card in the camera. Connect, shoot 3 frames. Exposure shows
       *Save photos to: Memory card*; Diagnose camera says every shot is also on the card; the
       camera's card (view on the camera) has the 3 shots.

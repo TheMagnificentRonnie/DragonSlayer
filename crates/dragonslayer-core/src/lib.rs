@@ -14,4 +14,4 @@ pub mod scene;
 pub use error::{Error, Result};
 pub use journal::{JournalEntry, JournalOp};
 pub use project::{Project, ProjectFile, RecoveryReport};
-pub use scene::{Frame, Scene, SceneFile};
+pub use scene::{Frame, Scene, SceneAudio, SceneFile};

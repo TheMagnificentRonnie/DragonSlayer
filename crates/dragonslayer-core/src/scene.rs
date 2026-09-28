@@ -14,6 +14,19 @@ pub struct SceneFile {
     pub name: String,
     #[serde(default)]
     pub fps: Option<u32>,
+    /// Reference audio (music, dialogue) the scene is animated to. Takes use their scene's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audio: Option<SceneAudio>,
+}
+
+/// A sound file in the project's `audio/` folder, and where in it frame 1 falls.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SceneAudio {
+    /// Path relative to the project folder, e.g. `audio/song.wav`.
+    pub file: String,
+    /// Milliseconds into the sound at frame 1.
+    #[serde(default)]
+    pub start_ms: u64,
 }
 
 #[derive(Debug, Clone)]

@@ -93,6 +93,7 @@ DragonSlayer is deliberately kept small: it does one job (capture + compile) and
 - **Onion skin** — full-frame ghost or edge-detected outlines of the previous frame, so you can see exactly how far you've moved between shots
 - **Scenes** with independent frame rates, drag-to-reorder, rename, per-scene trash
 - **Takes** — shoot a scene again without deleting the first attempt, flip between takes, and pick which one goes in the film (★)
+- **Reference audio** — give a scene its music or dialogue: the waveform sits under the filmstrip, you hear it as you play or step through frames, slide it to line up, and Compile puts it in the video
 - **Never lose a frame** — every capture is a filesystem transaction, replayed on the next launch if the app crashes mid-shot
 - **Import images / rescue from the card** (Tools → Import images…) — rebuild a scene from the camera card or any folder if a project was lost or damaged. JPEG + RAW pairs become one frame, in the order they were taken; unreadable files on a damaged card are skipped and listed, cut-short JPEGs are flagged, and re-running skips what's already in. The card is only read.
 - **RAW + JPEG** kept side by side when the camera supports it
@@ -236,6 +237,8 @@ dragonslayer settings iso 400                  # change one (value exactly as li
 dragonslayer delete-last MyFilm sc010          # undo last (to trash)
 dragonslayer scene take MyFilm sc010           # new take of a scene (captures go into it)
 dragonslayer scene use MyFilm sc010 2          # the film uses take 2 (1 = the original)
+dragonslayer scene audio MyFilm sc010 line.wav --start 1.5   # reference audio, frame 1 at 1.5 s
+dragonslayer compile MyFilm --no-audio         # a silent video
 dragonslayer import MyFilm E:/DCIM --dry-run   # what's on the card
 dragonslayer import MyFilm E:/DCIM             # into a new scene "Imported"
 dragonslayer import MyFilm E:/DCIM --scene sc010   # after sc010's frames
